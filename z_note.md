@@ -23,3 +23,5 @@ python train.py --config-dir=. --config-name=image_pusht_diffusion_policy_cnn.ya
 # 这个默认保存在根目录的outputs目录，并且不会命名
 python train.py --config-dir=. --config-name=bf_lowdim_diffusion_unet.yaml training.seed=42 training.device=cuda:0
 
+# 运行收集程序
+python demo_pusht_mujoco.py -o data/pusht_mujoco_demo_1.zarr

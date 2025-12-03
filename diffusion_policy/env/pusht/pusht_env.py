@@ -137,10 +137,7 @@ class PushTEnv(gym.Env):
 
         return observation, reward, done, info
 
-    def render(self, mode):
-        return self._render_frame(mode)
-
-    def teleop_agent(self):
+    def render(self, mode):[50, 450] 像素（对应 512×512 窗口
         TeleopAgent = collections.namedtuple('TeleopAgent', ['act'])
         def act(obs):
             act = None
