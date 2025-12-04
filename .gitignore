@@ -110,6 +110,9 @@ plots/
 # media stuff:
 media/
 
+# env
+.robodiff_env/
+
 # Jupyter Notebook
 .ipynb_checkpoints
 

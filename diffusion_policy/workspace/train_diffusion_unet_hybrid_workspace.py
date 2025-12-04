@@ -253,7 +253,6 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                         del pred_action
                         del mse
                 
-                print("before checkpoint")
                 # checkpoint
                 if (self.epoch % cfg.training.checkpoint_every) == 0:
                     # checkpointing

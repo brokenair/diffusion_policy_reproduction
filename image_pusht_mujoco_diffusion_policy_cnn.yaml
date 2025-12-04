@@ -8,8 +8,8 @@ checkpoint:
     mode: max
     monitor_key: test_mean_score
 dataloader:
-  batch_size: 1
-  num_workers: 1
+  batch_size: 8
+  num_workers: 2
   persistent_workers: false
   pin_memory: true
   shuffle: true
@@ -56,13 +56,13 @@ policy:
   _target_: diffusion_policy.policy.diffusion_unet_hybrid_image_policy.DiffusionUnetHybridImagePolicy
   cond_predict_scale: true
   crop_shape:
-  - 420
-  - 420
+  - 360
+  - 360
   diffusion_step_embed_dim: 128
   down_dims:
+  - 256
   - 512
   - 1024
-  - 2048
   eval_fixed_crop: true
   horizon: 16
   kernel_size: 5
@@ -120,7 +120,7 @@ task:
     pad_before: 1
     seed: 42
     val_ratio: 0.02
-    zarr_path: data/pusht_mujoco_demo.zarr
+    zarr_path: data/pusht_mujoco_demo_1.zarr
   env_runner:
     _target_: diffusion_policy.env_runner.pusht_mujoco_runner.PushTMujocoImageRunner
     fps: 10
@@ -128,7 +128,7 @@ task:
     n_action_steps: 8
     n_envs: null
     n_obs_steps: 2
-    n_test: 50
+    n_test: 10
     n_test_vis: 4
     n_train: 6
     n_train_vis: 2
@@ -175,8 +175,8 @@ training:
   use_ema: true
   val_every: 1
 val_dataloader:
-  batch_size: 1
-  num_workers: 1
+  batch_size: 8
+  num_workers: 2
   persistent_workers: false
   pin_memory: true
   shuffle: false
