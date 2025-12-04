@@ -34,18 +34,18 @@ SCENE_XML = dedent(
         <global azimuth="90" elevation="90" offwidth="1024" offheight="1024"/>
       </visual>
       <worldbody>
-        <camera name="top_cam" pos="0 0 2" mode="fixed" euler="0 0 0"/>
+        <camera name="top_cam" pos="0 0 2" mode="fixed" xyaxes="1 0 0 0 -1 0"/>
         <light name="key" pos="0 0 3" dir="0 0 -1" diffuse="1 1 1" specular="0.3 0.3 0.3" cutoff="60" exponent="2"/>
         <light name="fill" pos="1.5 1.5 2" dir="-1 -1 -1" diffuse="0.6 0.6 0.6" specular="0.2 0.2 0.2"/>
         <geom name="table" type="plane" size="0.8 0.8 0.1" rgba="0.3 0.2 0.1 1"/>
         <body name="stick" pos="0 0 0.2" quat="0 0 0 1">
-            <joint name="slide_x" type="slide" axis="1 0 0" range="-0.8 0.8"/>
-            <joint name="slide_y" type="slide" axis="0 1 0" range="-0.8 0.8"/>
+            <joint name="slide_x" type="slide" axis="-1 0 0" range="-0.8 0.8"/>
+            <joint name="slide_y" type="slide" axis="0 -1 0" range="-0.8 0.8"/>
             <geom type="cylinder" size="0.03 0.2" density="800" rgba="0.8 0.3 0.3 1"/>
         </body>
         <body name="t_block" pos="0 0 0.05">
-            <joint name="t_slide_x" type="slide" axis="1 0 0" range="-0.5 0.5"/>
-            <joint name="t_slide_y" type="slide" axis="0 1 0" range="-0.5 0.5"/>
+            <joint name="t_slide_x" type="slide" axis="-1 0 0" range="-0.5 0.5"/>
+            <joint name="t_slide_y" type="slide" axis="0 -1 0" range="-0.5 0.5"/>
             <joint name="t_slide_z" type="slide" axis="0 0 1"/>
             <joint name="t_yaw" type="hinge" axis="0 0 1"/>
             <geom type="box" size="0.12 0.03 0.05" density="800"/>
@@ -345,9 +345,8 @@ class PushTMujocoEnv(gym.Env):
             if self.render_action and self.latest_action is not None:
                 # 将米坐标转换为像素坐标
                 action = self.latest_action
-                # 坐标范围 [-0.8, 0.8] -> [0, render_size]
                 coord_x = int((action[0] + 0.8) / 1.6 * self.render_size)
-                coord_y = int((0.8 - action[1]) / 1.6 * self.render_size)  # y 轴翻转
+                coord_y = int((0.8 - action[1]) / 1.6 * self.render_size)
                 coord = (coord_x, coord_y)
                 marker_size = int(8 / 96 * self.render_size)
                 thickness = max(1, int(1 / 96 * self.render_size))
