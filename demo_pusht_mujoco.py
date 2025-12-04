@@ -8,11 +8,13 @@ MuJoCo 版本的 PushT 数据采集脚本。
 
 操作说明：
     - MuJoCo viewer 显示 3D 场景
-    - 鼠标控制窗口：点击鼠标左键开始控制，松开停止
+    - 鼠标控制窗口：点击一次开始控制，再点击一次停止；控制时移动鼠标即可
     - 按 'Q' 退出程序
     - 按 'R' 重试当前 episode
     - 按 'S' 保存当前 episode（即使未完成）
     - 按 'P' 暂停/继续
+    
+注意：每个 episode 结束后需要重新点击鼠标才能开始下一个 episode
 """
 
 import numpy as np
@@ -25,22 +27,22 @@ from diffusion_policy.env.pusht.pusht_mujoco_env import PushTMujocoEnv
 
 class MouseTargetWindow:
     """
-    鼠标目标窗口。
+    鼠标目标窗口（Toggle 模式）。
     
-    点击鼠标左键后开始控制，松开停止。
-    - 按下时：目标设为 stick 当前位置（避免突变）
-    - 拖拽时：跟随鼠标移动
-    - 松开时：目标锁定在松开位置（避免飘动）
+    - 点击一次：开始控制（目标设为 stick 当前位置）
+    - 控制时：移动鼠标即可更新目标（不需要按下）
+    - 再次点击：停止控制（锁定当前目标）
+    - Episode 结束：自动停止控制（避免下次突变）
     """
     
     def __init__(self, plane_half_extent, window_size=800):
         self.window_size = window_size
         self.half_extent = np.asarray(plane_half_extent, dtype=float)
         self._target = np.zeros(2, dtype=float)  # 当前目标
-        self._locked_target = np.zeros(2, dtype=float)  # 松开时锁定的目标
-        self._is_clicking = False  # 是否正在点击
-        self._click_start_pos = np.zeros(2, dtype=float)  # 点击时的 stick 位置
-        self._click_start_mouse = np.zeros(2, dtype=float)  # 点击时的鼠标位置
+        self._is_controlling = False  # 是否处于控制状态（toggle）
+        self._control_start_pos = np.zeros(2, dtype=float)  # 开始控制时的 stick 位置
+        self._control_start_mouse = np.zeros(2, dtype=float)  # 开始控制时的鼠标位置
+        self._current_stick_pos = np.zeros(2, dtype=float)  # 当前 stick 位置（由外部更新）
         self._lock = threading.Lock()
         self._ready = threading.Event()
         self._init_error = None
@@ -59,44 +61,44 @@ class MouseTargetWindow:
         with self._lock:
             self._current_stick_pos = np.array(pos, dtype=float)
     
-    def start_control(self, current_stick_pos, mouse_plane_pos):
-        """开始控制时调用"""
+    def toggle_control(self, mouse_plane_pos):
+        """切换控制状态（由鼠标点击调用）"""
         with self._lock:
-            self._is_clicking = True
-            self._click_start_pos = np.array(current_stick_pos, dtype=float)
-            self._click_start_mouse = np.array(mouse_plane_pos, dtype=float)
-            self._target = self._click_start_pos.copy()
+            if not self._is_controlling:
+                # 开始控制：目标设为 stick 当前位置
+                self._is_controlling = True
+                self._control_start_pos = self._current_stick_pos.copy()
+                self._control_start_mouse = np.array(mouse_plane_pos, dtype=float)
+                self._target = self._control_start_pos.copy()
+            else:
+                # 停止控制：锁定当前目标
+                self._is_controlling = False
+            return self._is_controlling
     
-    def update_control(self, mouse_plane_pos):
-        """拖拽时更新目标"""
+    def update_target(self, mouse_plane_pos):
+        """更新目标（由鼠标移动调用）"""
         with self._lock:
-            if self._is_clicking:
+            if self._is_controlling:
                 # 目标 = stick初始位置 + 鼠标移动量
-                delta = mouse_plane_pos - self._click_start_mouse
-                self._target = self._click_start_pos + delta
+                delta = mouse_plane_pos - self._control_start_mouse
+                self._target = self._control_start_pos + delta
                 # 限制在范围内
                 self._target = np.clip(self._target, -self.half_extent, self.half_extent)
     
-    def stop_control(self):
-        """松开时调用"""
+    def stop_control_external(self):
+        """外部调用：强制停止控制（episode 结束时）"""
         with self._lock:
-            self._is_clicking = False
-            self._locked_target = self._target.copy()
+            self._is_controlling = False
     
     def get_target(self):
-        """
-        获取目标位置。
-        
-        - 点击时：返回当前拖拽目标
-        - 未点击时：返回锁定的目标（保持位置）
-        """
+        """获取目标位置"""
         with self._lock:
             return self._target.copy()
     
     def is_controlling(self):
         """是否正在控制"""
         with self._lock:
-            return self._is_clicking
+            return self._is_controlling
     
     def _run(self):
         try:
@@ -107,7 +109,7 @@ class MouseTargetWindow:
             return
         
         self.root = tk.Tk()
-        self.root.title("Mouse Control - CLICK to control")
+        self.root.title("Mouse Control - CLICK to toggle")
         
         canvas = tk.Canvas(
             self.root,
@@ -136,15 +138,15 @@ class MouseTargetWindow:
         canvas.create_line(cx, cy - 20, cx, cy + 20, fill="#666", width=2)
         
         # 目标指示器
-        self.cross_h = canvas.create_line(0, 0, 0, 0, fill="#ffcc33", width=2)
-        self.cross_v = canvas.create_line(0, 0, 0, 0, fill="#ffcc33", width=2)
+        self.cross_h = canvas.create_line(0, 0, 0, 0, fill="#888888", width=2)
+        self.cross_v = canvas.create_line(0, 0, 0, 0, fill="#888888", width=2)
         
         # 状态文本
         self.status_text = canvas.create_text(
             self.window_size // 2, 25,
             fill="#888888",
-            text="Click and hold to control",
-            font=("Arial", 14)
+            text="Click to start controlling",
+            font=("Arial", 14, "bold")
         )
         
         # 坐标文本
@@ -157,14 +159,9 @@ class MouseTargetWindow:
         
         self.canvas = canvas
         
-        # 绑定鼠标事件
+        # 绑定鼠标事件（只需要点击和移动）
         canvas.bind("<ButtonPress-1>", self._on_click)
-        canvas.bind("<ButtonRelease-1>", self._on_release)
-        canvas.bind("<B1-Motion>", self._on_drag)
         canvas.bind("<Motion>", self._on_motion)
-        
-        # 存储当前 stick 位置（由外部更新）
-        self._current_stick_pos = np.zeros(2, dtype=float)
         
         self._ready.set()
         
@@ -204,57 +201,43 @@ class MouseTargetWindow:
         y_pixel = (1.0 - norm_y) / 2.0 * self.window_size
         return x_pixel, y_pixel
     
-    def _update_display(self, target_pos, is_active):
+    def _update_display(self, target_pos, is_controlling):
         """更新显示"""
         # 将目标位置转换为画布坐标
         x, y = self._plane_to_canvas(target_pos)
         
         # 更新十字线
-        if is_active:
+        if is_controlling:
             self.canvas.coords(self.cross_h, 0, y, self.window_size, y)
             self.canvas.coords(self.cross_v, x, 0, x, self.window_size)
-            self.canvas.itemconfigure(self.cross_h, fill="#ff3333")
-            self.canvas.itemconfigure(self.cross_v, fill="#ff3333")
-            self.canvas.itemconfigure(self.status_text, text="CONTROLLING", fill="#ff3333")
+            self.canvas.itemconfigure(self.cross_h, fill="#ff3333", width=3)
+            self.canvas.itemconfigure(self.cross_v, fill="#ff3333", width=3)
+            self.canvas.itemconfigure(self.status_text, text="● CONTROLLING (click to stop)", fill="#ff3333")
         else:
             self.canvas.coords(self.cross_h, 0, y, self.window_size, y)
             self.canvas.coords(self.cross_v, x, 0, x, self.window_size)
-            self.canvas.itemconfigure(self.cross_h, fill="#33ff33")
-            self.canvas.itemconfigure(self.cross_v, fill="#33ff33")
-            self.canvas.itemconfigure(self.status_text, text="HOLDING POSITION", fill="#33ff33")
+            self.canvas.itemconfigure(self.cross_h, fill="#888888", width=2)
+            self.canvas.itemconfigure(self.cross_v, fill="#888888", width=2)
+            self.canvas.itemconfigure(self.status_text, text="○ Click to start", fill="#888888")
         
-        self.canvas.itemconfigure(self.coord_text, text=f"target: ({target_pos[0]:.2f}, {target_pos[1]:.2f}) m")
+        self.canvas.itemconfigure(self.coord_text, text=f"Target: ({target_pos[0]:.2f}, {target_pos[1]:.2f}) m")
     
     def _on_click(self, event):
-        """鼠标点击：目标设为 stick 当前位置"""
+        """鼠标点击：切换控制状态"""
         mouse_pos = self._canvas_to_plane(event.x, event.y)
-        with self._lock:
-            current_pos = self._current_stick_pos.copy()
-        self.start_control(current_pos, mouse_pos)
-        self._update_display(current_pos, True)
-    
-    def _on_release(self, event):
-        """鼠标释放：锁定当前目标"""
-        self.stop_control()
+        is_controlling = self.toggle_control(mouse_pos)
         with self._lock:
             target = self._target.copy()
-        self._update_display(target, False)
-    
-    def _on_drag(self, event):
-        """鼠标拖拽：目标跟随移动"""
-        mouse_pos = self._canvas_to_plane(event.x, event.y)
-        self.update_control(mouse_pos)
-        with self._lock:
-            target = self._target.copy()
-        self._update_display(target, True)
+        self._update_display(target, is_controlling)
     
     def _on_motion(self, event):
-        """鼠标移动（未点击）：只更新显示"""
+        """鼠标移动：如果在控制状态则更新目标"""
+        mouse_pos = self._canvas_to_plane(event.x, event.y)
+        self.update_target(mouse_pos)
         with self._lock:
-            is_active = self._is_clicking
+            is_controlling = self._is_controlling
             target = self._target.copy()
-        # 未点击时显示锁定的目标位置
-        self._update_display(target, is_active)
+        self._update_display(target, is_controlling)
     
     def close(self):
         """线程安全地关闭窗口"""
@@ -279,7 +262,8 @@ def main(output, render_size, control_hz, mouse_window):
     # 创建环境
     env = PushTMujocoEnv(
         render_size=render_size,
-        render_action=True,
+        # 这个不能开
+        render_action=False,
     )
     
     # 创建鼠标控制窗口
@@ -297,8 +281,10 @@ def main(output, render_size, control_hz, mouse_window):
     print(f"配置: {render_size}x{render_size} @ {control_hz}Hz -> {output}")
     print("")
     print("操作：")
-    print("  鼠标窗口: 点击并拖拽控制 stick")
+    print("  鼠标窗口: 点击切换控制（ON/OFF），控制时移动鼠标即可")
     print("  Q - 退出 | R - 重试 | S - 保存 | P - 暂停")
+    print("")
+    print("注意: Episode 结束后会自动停止控制，需重新点击开始")
     print("=" * 60)
     
     # 设置终端为非阻塞输入
@@ -342,13 +328,14 @@ def main(output, render_size, control_hz, mouse_window):
             step_count = 0
             
             print(f"  初始位置: stick=({obs[0]:.2f}, {obs[1]:.2f}), t_block=({obs[2]:.2f}, {obs[3]:.2f}), yaw={obs[4]:.2f}")
+            print(f"  点击鼠标窗口开始控制...")
             
             # 初始化鼠标窗口的目标为 stick 当前位置
             stick_pos = env._get_stick_pos()
             mouse_window.set_current_pos(stick_pos)
             with mouse_window._lock:
                 mouse_window._target = stick_pos.copy()
-                mouse_window._locked_target = stick_pos.copy()
+                mouse_window._is_controlling = False  # 确保控制状态关闭
             
             # Step 循环
             while not done:
@@ -418,6 +405,9 @@ def main(output, render_size, control_hz, mouse_window):
                     time.sleep(sleep_time)
             
             print()  # 换行
+            
+            # Episode 结束：自动关闭控制状态（避免下次突变）
+            mouse_window.stop_control_external()
 
             # 检查是否退出
             if quit_flag:
