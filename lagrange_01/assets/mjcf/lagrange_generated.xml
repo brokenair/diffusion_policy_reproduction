@@ -1,0 +1,60 @@
+<mujoco model="Lagrange_01_sim">
+  <compiler angle="radian" meshdir="/home/broken/Desktop/projects/diffusion_policy/lagrange_01/assets/meshes"/>
+  <option gravity="0 0 -9.81" timestep="0.002"/>
+  <asset>
+    <mesh name="arm1.STL" file="arm1.STL"/>
+    <mesh name="arm2.STL" file="arm2.STL"/>
+    <mesh name="base_link.STL" file="base_link.STL"/>
+    <mesh name="ee.STL" file="ee.STL"/>
+    <mesh name="elbow.STL" file="elbow.STL"/>
+    <mesh name="shoulder.STL" file="shoulder.STL"/>
+    <mesh name="wrist.STL" file="wrist.STL"/>
+  </asset>
+  <worldbody>
+    <body name="base_link" pos="0 0 0" quat="1 0 0 0">
+      <inertial pos="4.4101151e-05 -2.9075656e-05 0.036138784" quat="1 0 0 0" mass="0.80984026" diaginertia="0.0017535432 0.0016267095 0.003069356"/>
+      <geom name="base_link_vis_0" type="mesh" mesh="base_link.STL" pos="0 0 0" quat="1 0 0 0" rgba="0.5 0.5 0.5 1" contype="1" conaffinity="1"/>
+      <body name="shoulder" pos="0 0 0.0888" quat="-3.6732051e-06 -0 0 1">
+        <joint name="j1" type="hinge" axis="0 0 -1" limited="true" range="-1.57 1.57" damping="0.1"/>
+        <inertial pos="0.028988696 -0.030180971 0.036797058" quat="1 0 0 0" mass="0.24639825" diaginertia="0.00018099362 0.00032969031 0.00022373249"/>
+        <geom name="shoulder_vis_0" type="mesh" mesh="shoulder.STL" pos="0 0 0" quat="1 0 0 0" rgba="0.7 0.7 0.7 1" contype="1" conaffinity="1"/>
+        <body name="arm1" pos="0.05 -0.0535 0.058" quat="0.70710808 0.70710548 5.1946965e-06 9.5405928e-12">
+          <joint name="j2" type="hinge" axis="0 0 1" limited="true" range="-0.2 3.1415" damping="0.1"/>
+          <inertial pos="0.14611299 6.4086514e-12 0.019400023" quat="1 0 0 0" mass="0.17230018" diaginertia="5.7012155e-05 0.00092369398 0.00094899418"/>
+          <geom name="arm1_vis_0" type="mesh" mesh="arm1.STL" pos="0 0 0" quat="1 0 0 0" rgba="0.7 0.7 0.7 1" contype="1" conaffinity="1"/>
+          <body name="elbow" pos="0.307 0 -0.001" quat="1 0 0 0">
+            <joint name="j3" type="hinge" axis="0 0 -1" limited="true" range="-1.57 3" damping="0.1"/>
+            <inertial pos="0.036174796 0.040830781 -0.027293224" quat="1 0 0 0" mass="0.28444827" diaginertia="0.00022223297 0.0001535005 0.00029716854"/>
+            <geom name="elbow_vis_0" type="mesh" mesh="elbow.STL" pos="0 0 0" quat="1 0 0 0" rgba="0.7 0.7 0.7 1" contype="1" conaffinity="1"/>
+            <body name="arm2" pos="0 0.065 -0.05255" quat="-3.8960224e-06 -0.70710678 1.2986741e-06 -0.70710678">
+              <joint name="j4" type="hinge" axis="0 0 1" limited="true" range="-1.57 1.57" damping="0.1"/>
+              <inertial pos="-0.005959454 -5.3273936e-05 0.25233437" quat="1 0 0 0" mass="0.10786194" diaginertia="0.00016211857 0.00014653914 2.9779959e-05"/>
+              <geom name="arm2_vis_0" type="mesh" mesh="arm2.STL" pos="0 0 0" quat="1 0 0 0" rgba="0.7 0.7 0.7 1" contype="1" conaffinity="1"/>
+              <body name="wrist" pos="0.0259 0 0.3055" quat="-3.8960224e-06 0.70710678 1.2986741e-06 0.70710678">
+                <joint name="j5" type="hinge" axis="0 0 -1" limited="true" range="-1.57 1.57" damping="0.1"/>
+                <inertial pos="0.044453379 7.4418562e-05 -0.014683474" quat="1 0 0 0" mass="0.085343914" diaginertia="3.9564404e-05 3.0024207e-05 3.7611192e-05"/>
+                <geom name="wrist_vis_0" type="mesh" mesh="wrist.STL" pos="0 0 0" quat="1 0 0 0" rgba="0.7 0.7 0.7 1" contype="1" conaffinity="1"/>
+                <body name="ee" pos="0.0986 0 -0.0267" quat="0.70699972 0.012301739 0.70699981 0.012301739">
+                  <joint name="j6" type="hinge" axis="0 0 -1" limited="true" range="-1.57 1.57" damping="0.1"/>
+                  <inertial pos="5.5511151e-17 0 0.0029383338" quat="1 0 0 0" mass="0.0073680723" diaginertia="8.3869631e-07 8.3869631e-07 1.6325133e-06"/>
+                  <geom name="ee_vis_0" type="mesh" mesh="ee.STL" pos="0 0 0" quat="1 0 0 0" rgba="0.5 0.5 0.5 1" contype="1" conaffinity="1"/>
+                  <body name="tool_link" pos="0 0 0.006" quat="1 0 0 0">
+                    <geom name="tool_link_box_0" type="box" size="0.02 0.02 0.02" pos="0 0 0.01" quat="1 0 0 0" rgba="0 0 0.5 1" contype="1" conaffinity="1"/>
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+  <actuator>
+    <position name="j1_actuator" joint="j1" kp="100" ctrlrange="-3.14 3.14"/>
+    <position name="j2_actuator" joint="j2" kp="100" ctrlrange="-3.14 3.14"/>
+    <position name="j3_actuator" joint="j3" kp="100" ctrlrange="-3.14 3.14"/>
+    <position name="j4_actuator" joint="j4" kp="100" ctrlrange="-3.14 3.14"/>
+    <position name="j5_actuator" joint="j5" kp="100" ctrlrange="-3.14 3.14"/>
+    <position name="j6_actuator" joint="j6" kp="100" ctrlrange="-3.14 3.14"/>
+  </actuator>
+</mujoco>

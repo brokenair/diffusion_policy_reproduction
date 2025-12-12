@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<robot name="Lagrange_01" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+    <xacro:include filename="common_properities.xacro"/>
+    <xacro:include filename="Lagrange_01.xacro"/>
+
+</robot>

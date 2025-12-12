@@ -6,9 +6,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 该项目使用 conda 环境管理：
 - 环境名称：`robodiff`
-- 安装命令：`conda env create -f conda_environment.yaml` 或使用 mamba：`mamba env create -f conda_environment.yaml`
+- 安装命令：`conda env create -f conda_environment.yaml` 或使用 mamba（推荐）：`mamba env create -f conda_environment.yaml`
 - 激活环境：`conda activate robodiff`
 - 需要安装包依赖：`pip install -e .`
+- MacOS 开发环境：使用 `conda_environment_macos.yaml`（功能受限，不支持完整基准测试）
+- 真实机器人环境：使用 `conda_environment_real.yaml`
+
+### MuJoCo 依赖（Ubuntu 20.04）
+```bash
+sudo apt install -y libosmesa6-dev libgl1-mesa-glx libglfw3 patchelf
+```
+
+### 真实机器人额外依赖
+- RealSense SDK: [安装指南](https://github.com/IntelRealSense/librealsense/blob/master/doc/distribution_linux.md)
+- SpaceMouse: `sudo apt install libspnav-dev spacenavd; sudo systemctl start spacenavd`
 
 ## 主要开发命令
 
@@ -37,17 +48,50 @@ python eval_real_robot.py -i checkpoints/latest.ckpt -o data/eval_output --robot
 # 真实机器人数据收集
 python demo_real_robot.py -o data/demo_output --robot_ip 192.168.0.204
 
-# 仿真环境演示
-python demo_pusht.py
+# PushT 仿真环境演示（pygame）
+python demo_pusht.py -o data/pusht_demo.zarr
+
+# PushT MuJoCo 环境数据采集（自定义实现）
+python demo_pusht_mujoco.py -o data/pusht_mujoco_demo.zarr
+# 可选参数：
+# -rs 480  # 图像分辨率（默认480x480）
+# -hz 10   # 控制频率（默认10Hz）
+# --mouse-window 800  # 鼠标控制窗口大小
 ```
 
 ### 运行测试
 ```bash
-# 运行单个测试
+# 运行官方测试
 python tests/test_replay_buffer.py
 python tests/test_robomimic_image_runner.py
 
-# 测试文件位于 tests/ 目录
+# 自定义测试脚本（my_tests/ 目录）
+python my_tests/mujoco_smoke_test.py --render --mouse-target  # MuJoCo 场景测试
+python my_tests/view_zarr_data.py  # 查看 zarr 数据集
+python test_replay_buffer_save.py  # ReplayBuffer 保存性能测试
+```
+
+### 下载训练数据
+```bash
+# 创建数据目录
+mkdir -p data && cd data
+
+# 下载 PushT 数据集
+wget https://diffusion-policy.cs.columbia.edu/data/training/pusht.zip
+unzip pusht.zip && rm -f pusht.zip
+
+# 下载其他数据集：见 https://diffusion-policy.cs.columbia.edu/data/training/
+```
+
+### 下载预训练模型配置
+```bash
+# 下载实验配置文件
+wget -O image_pusht_diffusion_policy_cnn.yaml \
+  https://diffusion-policy.cs.columbia.edu/data/experiments/image/pusht/diffusion_policy_cnn/config.yaml
+
+# 下载完整实验目录（包含检查点）
+wget --recursive --no-parent --no-host-directories --relative --reject="index.html*" \
+  https://diffusion-policy.cs.columbia.edu/data/experiments/low_dim/square_ph/diffusion_policy_cnn/
 ```
 
 ## 代码架构概述
@@ -135,7 +179,97 @@ data/dataset_name.zarr/
 ├── data/
 │   ├── action (N, action_dim)
 │   ├── obs (N, obs_dim) 或图像数据
+│   ├── img (N, H, W, 3)  # 图像数据（如适用）
+│   ├── state (N, state_dim)  # 状态数据
 │   └── ...
 └── meta/
-    └── episode_ends (num_episodes,)
+    └── episode_ends (num_episodes,)  # 每个 episode 结束的索引
+```
+
+zarr 数组支持两种后端：
+- **内存模式**（numpy）：快速但受内存限制
+- **磁盘模式**（zarr）：支持大型数据集，带压缩
+  - `compressor='default'`: Blosc lz4 压缩（快速）
+  - `compressor='disk'`: Blosc zstd 压缩（慢但压缩率高）
+
+## 自定义扩展
+
+### PushT MuJoCo 环境
+
+该项目包含自定义的 MuJoCo 版本 PushT 环境（`diffusion_policy/env/pusht/pusht_mujoco_env.py`）：
+- 使用 MuJoCo 3.3.7 物理引擎
+- PD 控制器驱动 stick 运动（kp=200, kd=20）
+- 支持人机交互数据收集（`demo_pusht_mujoco.py`）
+- 坐标系统：米制单位，平面范围 ±0.8m
+
+### MuJoCo 场景关键参数
+- **plane size**: MuJoCo 中 `size="0.8 0.8 0.1"` 表示**半尺寸**（half-extents），实际边长为 1.6m
+- **关节 range**: stick 的 x/y 关节范围均为 `[-0.8, 0.8]`
+- **相机设置**: 使用 `azimuth` 和 `elevation` 控制默认视角
+  - `azimuth="0" elevation="-90"`: 正俯视（推荐）
+  - `azimuth` 控制水平旋转，`elevation` 控制俯仰角
+
+### 已知问题和注意事项
+
+**ReplayBuffer 保存性能：**
+- 使用 `compressors='disk'` 保存大分辨率图像（如 480×480）时可能需要 10-30 秒
+- 这是正常的压缩时间，不是卡死
+- 测试保存性能：运行 `python test_replay_buffer_save.py`
+
+**demo_pusht_mujoco.py 使用注意：**
+- 按键控制（Q/R/S/P）需要终端窗口有焦点
+- 如果按键无响应，点击终端窗口
+- 按 S 保存时会显示进度（不是卡死）
+- 退出时可能短暂卡顿（tkinter 线程清理），属于正常现象
+
+**tkinter 线程安全：**
+- MouseTargetWindow 在 daemon 线程中运行 tkinter mainloop
+- 跨线程调用 `root.destroy()` 可能导致清理时短暂阻塞
+- 紧急情况使用 Ctrl+C 强制退出
+
+## 输出目录结构
+
+### 训练输出（使用自定义 hydra.run.dir）
+```bash
+# 推荐的训练命令（带时间戳和任务名）
+python train.py --config-dir=. --config-name=config.yaml \
+  training.seed=42 training.device=cuda:0 \
+  hydra.run.dir='data/outputs/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}'
+
+# 输出结构
+data/outputs/2023.03.01/20.02.03_train_diffusion_unet_hybrid_pusht_image/
+├── checkpoints/
+│   ├── epoch=0300-test_mean_score=1.000.ckpt
+│   └── latest.ckpt
+├── .hydra/
+│   ├── config.yaml
+│   ├── hydra.yaml
+│   └── overrides.yaml
+└── logs.json.txt
+```
+
+### 默认训练输出（无自定义 hydra.run.dir）
+```
+outputs/  # 根目录下的 outputs
+```
+
+## 调试和开发工具
+
+### my_tests/ 目录
+包含自定义测试和可视化脚本：
+- `mujoco_smoke_test.py`: MuJoCo 场景快速测试，支持鼠标交互
+- `view_zarr_data.py`: zarr 数据集可视化工具
+- `test_red_cross_position.py`: 测试动作标记渲染
+- `test_415.py` / `test_415_resize.py`: RealSense 相机测试
+
+### 常见调试场景
+```bash
+# 验证 MuJoCo 安装和场景
+python my_tests/mujoco_smoke_test.py --render --mouse-target
+
+# 检查 zarr 数据集内容
+python my_tests/view_zarr_data.py
+
+# 测试 ReplayBuffer 性能
+python test_replay_buffer_save.py
 ```

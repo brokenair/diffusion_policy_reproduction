@@ -25,3 +25,7 @@ python train.py --config-dir=. --config-name=bf_lowdim_diffusion_unet.yaml train
 
 # 运行收集程序
 python demo_pusht_mujoco.py -o data/pusht_mujoco_demo_1.zarr
+
+# codex和claude更新
+sudo npm i -g @openai/codex
+sudo claude update

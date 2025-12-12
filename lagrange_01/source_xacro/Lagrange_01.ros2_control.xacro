@@ -1,0 +1,75 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <ros2_control name="arm" type="system">
+      <hardware>
+          <plugin>arm_hardware/ArmHardwareInterface</plugin>
+          <param name="can_interface">can0</param>
+          <param name="j1_motor_id">1</param>
+          <param name="j1_direction">1.0</param>
+          <param name="j1_offset">3.39956</param>
+          <param name="j2_motor_id">2</param>
+          <param name="j2_direction">-1.0</param>
+          <param name="j2_offset">4.170464</param>
+          <param name="j3_motor_id">3</param>
+          <param name="j3_direction">-1.0</param>
+          <param name="j3_offset">4.144459</param>
+          <param name="j4_motor_id">4</param>
+          <param name="j4_direction">-1.0</param>
+          <param name="j4_offset">3.1415926</param>
+          <param name="j5_motor_id">5</param>
+          <param name="j5_direction">1.0</param>
+          <param name="j5_offset">2.613631</param>
+          <param name="j6_motor_id">6</param>
+          <param name="j6_direction">1.0</param>
+          <param name="j6_offset">0.0</param>
+      </hardware>
+      <joint name="j1">
+          <command_interface name="position"/>
+          <state_interface name="position">
+            <param name="initial_value">0.0</param>
+          </state_interface>
+      </joint>
+      <joint name="j2">
+          <command_interface name="position"/>
+          <state_interface name="position">
+            <param name="initial_value">0.0</param>
+          </state_interface>
+      </joint>
+      <joint name="j3">
+          <command_interface name="position"/>
+          <state_interface name="position">
+            <param name="initial_value">0.0</param>
+          </state_interface>
+      </joint>
+      <joint name="j4">
+          <command_interface name="position"/>
+          <state_interface name="position">
+            <param name="initial_value">0.0</param>
+          </state_interface>
+      </joint>
+      <joint name="j5">
+          <command_interface name="position"/>
+          <state_interface name="position">
+            <param name="initial_value">0.0</param>
+          </state_interface>
+      </joint>
+      <joint name="j6">
+          <command_interface name="position"/>
+          <state_interface name="position">
+            <param name="initial_value">0.0</param>
+          </state_interface>
+      </joint>
+  </ros2_control>
+
+  <ros2_control name="Gripper" type="system">
+  <hardware>
+          <plugin>mock_components/GenericSystem</plugin>
+      </hardware>
+    <joint name="gripper_left_finger_joint">
+          <command_interface name="position"/>
+          <state_interface name="position">
+            <param name="initial_value">0.0</param>
+          </state_interface>
+      </joint>
+  </ros2_control>
+</robot>

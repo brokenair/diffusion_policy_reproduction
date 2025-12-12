@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<robot name="Lagrange_01" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+    <xacro:include filename="common_properities.xacro"/>
+    <xacro:include filename="Lagrange_01.xacro"/>
+    <xacro:include filename="gripper.xacro"/>
+    <xacro:include filename="Lagrange_01.ros2_control.xacro"/>
+
+    <joint name="gripper_to_robot" type="fixed">
+        <parent link="tool_link"/>
+        <child link="gripper_base_link"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+    </joint>
+
+</robot>

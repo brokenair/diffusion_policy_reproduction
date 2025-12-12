@@ -1,0 +1,27 @@
+# Motor-to-Joint Calibration Parameters
+# 
+# Maps between two coordinate systems:
+# - Motor space (hardware space): Raw encoder readings from motors
+# - Joint space (URDF space):     Calibrated joint angles in robot model
+#
+# Affine transform formulas:
+#   Joint-to-Motor (for commanding):  motor_cmd = (joint_angle / direction) + offset
+#   Motor-to-Joint (for sensing):     joint_angle = direction * (motor_reading - offset)
+#
+# Parameters:
+#   direction: Scaling factor (typically ±1.0 for direction reversal)
+#   offset:    Zero-position offset in motor space (radians)
+
+hardware:
+  can_interface: can0
+  joints:
+    - {name: j1, motor_id: 1, direction: 1.0, offset: 3.39956}
+    - {name: j2, motor_id: 2, direction: -1.0, offset: 4.170464}
+    - {name: j3, motor_id: 3, direction: -1.0, offset: 4.144459}
+    - {name: j4, motor_id: 4, direction: -1.0, offset: 3.1415926}
+    - {name: j5, motor_id: 5, direction: 1.0, offset: 2.613631}
+    - {name: j6, motor_id: 6, direction: 1.0, offset: 3.1415926}
+
+note: |
+  Values copied from ros2_control xacro (Lagrange_01.ros2_control.xacro) and
+  ArmHardwareInterface. Use them when wiring real motors back into the Python stack.

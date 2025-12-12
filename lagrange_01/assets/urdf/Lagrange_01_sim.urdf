@@ -1,0 +1,225 @@
+<?xml version="1.0"?>
+<robot name="Lagrange_01_sim">
+  <!-- Material definitions copied from common_properities.xacro -->
+  <material name="grey">
+    <color rgba="0.5 0.5 0.5 1"/>
+  </material>
+  <material name="blue">
+    <color rgba="0 0 0.5 1"/>
+  </material>
+  <material name="dark_green">
+    <color rgba="0 0.4 0 1"/>
+  </material>
+  <material name="green">
+    <color rgba="0 0.6 0 1"/>
+  </material>
+
+  <!-- Joints (fixed base, 6-DOF arm, fixed tool/gripper) -->
+  <joint name="j1" type="revolute">
+    <origin xyz="0 0 0.0888" rpy="0 0 3.1416"/>
+    <parent link="base_link"/>
+    <child link="shoulder"/>
+    <axis xyz="0 0 -1"/>
+    <limit lower="-1.57" upper="1.57" effort="100" velocity="1.0"/>
+  </joint>
+  <joint name="j2" type="revolute">
+    <origin xyz="0.05 -0.0535 0.058" rpy="-1.5708 -3.1416 3.1416"/>
+    <parent link="shoulder"/>
+    <child link="arm1"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-0.2" upper="3.1415" effort="100" velocity="1.0"/>
+  </joint>
+  <joint name="j3" type="revolute">
+    <origin xyz="0.307 0 -0.001" rpy="0 0 0"/>
+    <parent link="arm1"/>
+    <child link="elbow"/>
+    <axis xyz="0 0 -1"/>
+    <limit lower="-1.57" upper="3.0" effort="100" velocity="1.0"/>
+  </joint>
+  <joint name="j4" type="revolute">
+    <origin xyz="0 0.065 -0.05255" rpy="-1.5708 -1.5708 -1.5708"/>
+    <parent link="elbow"/>
+    <child link="arm2"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.57" upper="1.57" effort="100" velocity="1.0"/>
+  </joint>
+  <joint name="j5" type="revolute">
+    <origin xyz="0.0259 0 0.3055" rpy="1.5708 -1.5708 1.5708"/>
+    <parent link="arm2"/>
+    <child link="wrist"/>
+    <axis xyz="0 0 -1"/>
+    <limit lower="-1.57" upper="1.57" effort="100" velocity="1.0"/>
+  </joint>
+  <joint name="j6" type="revolute">
+    <origin xyz="0.0986 0 -0.0267" rpy="1.5708 1.536 1.5708"/>
+    <parent link="wrist"/>
+    <child link="ee"/>
+    <axis xyz="0 0 -1"/>
+    <limit lower="-1.57" upper="1.57" effort="100" velocity="1.0"/>
+  </joint>
+  <joint name="hand_tool_joint" type="fixed">
+    <parent link="ee"/>
+    <child link="tool_link"/>
+    <origin xyz="0 0 0.006" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Links: geometry copied from Lagrange_01.xacro -->
+  <link name="base_link">
+    <inertial>
+      <origin xyz="4.41011508878764E-05 -2.90756555668681E-05 0.0361387835104102" rpy="0 0 0"/>
+      <mass value="0.809840255220577"/>
+      <inertia ixx="0.00175354317772318" ixy="-3.3351357639085E-08" ixz="-1.15494031424985E-05" iyy="0.00162670948417624" iyz="-6.61769333761291E-08" izz="0.00306935595115229"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="../meshes/base_link.STL"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="../meshes/base_link.STL"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="shoulder">
+    <inertial>
+      <origin xyz="0.0289886964053496 -0.0301809705454806 0.0367970577713876" rpy="0 0 0"/>
+      <mass value="0.246398251542874"/>
+      <inertia ixx="0.000180993620440308" ixy="-3.74858776429711E-06" ixz="-2.296855341785E-05" iyy="0.000329690310718771" iyz="-1.9870058151598E-07" izz="0.000223732490676728"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="../meshes/shoulder.STL"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="../meshes/shoulder.STL"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="arm1">
+    <inertial>
+      <origin xyz="0.146112992897114 6.40865138734625E-12 0.0194000233256321" rpy="0 0 0"/>
+      <mass value="0.172300182895447"/>
+      <inertia ixx="5.70121551241632E-05" ixy="-2.04753504900016E-08" ixz="2.48481066314224E-10" iyy="0.000923693984989881" iyz="-1.57920077297098E-14" izz="0.000948994175431864"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="../meshes/arm1.STL"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="../meshes/arm1.STL"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="elbow">
+    <inertial>
+      <origin xyz="0.0361747964819732 0.0408307812875339 -0.0272932242166123" rpy="0 0 0"/>
+      <mass value="0.284448265743689"/>
+      <inertia ixx="0.000222232973321951" ixy="-3.88755261394376E-05" ixz="2.48198628008984E-07" iyy="0.000153500497691171" iyz="-1.706672036193E-06" izz="0.000297168544530739"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="../meshes/elbow.STL"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="../meshes/elbow.STL"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="arm2">
+    <inertial>
+      <origin xyz="-0.00595945402412162 -5.32739356225442E-05 0.252334366906384" rpy="0 0 0"/>
+      <mass value="0.107861938906089"/>
+      <inertia ixx="0.000162118569669926" ixy="-6.57666219522903E-08" ixz="-7.29599288696642E-08" iyy="0.000146539139756443" iyz="-1.80802905320553E-07" izz="2.97799591500001E-05"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="../meshes/arm2.STL"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="../meshes/arm2.STL"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="wrist">
+    <inertial>
+      <origin xyz="0.044453379437331 7.44185616712301E-05 -0.0146834741303253" rpy="0 0 0"/>
+      <mass value="0.085343913975739"/>
+      <inertia ixx="3.95644042665526E-05" ixy="-9.0338673212097E-07" ixz="-1.34778006725232E-09" iyy="3.00242071647503E-05" iyz="6.54951185528677E-07" izz="3.76111917704214E-05"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="../meshes/wrist.STL"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="../meshes/wrist.STL"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="ee">
+    <inertial>
+      <origin xyz="5.55111512312578E-17 0 0.00293833383379588" rpy="0 0 0"/>
+      <mass value="0.0073680722836419"/>
+      <inertia ixx="8.38696312093355E-07" ixy="-4.0697286137609E-22" ixz="1.49719690872098E-22" iyy="8.38696312093354E-07" iyz="1.58818677610181E-22" izz="1.63251325062631E-06"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="../meshes/ee.STL"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="../meshes/ee.STL"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="tool_link">
+    <visual>
+      <origin xyz="0 0 0.01" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.02 0.02 0.02"/>
+      </geometry>
+      <material name="blue"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.01" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.04 0.04 0.02"/>
+      </geometry>
+      <material name="blue"/>
+    </collision>
+  </link>
+</robot>
