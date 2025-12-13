@@ -434,7 +434,7 @@ class RobotController:
         if fixed_iterations is not None:
             success = (q_solution is not None)
         else:
-            success = (error < tolerance) and (q_solution is not None)
+        success = (error < tolerance) and (q_solution is not None)
         
         return q_solution, error, success
 

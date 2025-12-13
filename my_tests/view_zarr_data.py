@@ -444,7 +444,7 @@ def main(zarr_path, fps, start_episode):
                     break
                 # 其他键取消退出，继续循环
             else:
-                break
+            break
         elif key == ord(' '):  # 空格：暂停/继续
             is_paused = not is_paused
         elif key == 81 or key == 2:  # 左方向键：上一帧

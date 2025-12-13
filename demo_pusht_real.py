@@ -500,10 +500,10 @@ def main(output, control_hz, mouse_window):
                 color_frame = frames.get_color_frame()
                 
                 if not color_frame:
-                    print("  警告: 无法读取相机图像")
-                    time.sleep(0.1)
-                    continue
-                
+                        print("  警告: 无法读取相机图像")
+                        time.sleep(0.1)
+                        continue
+                    
                 # 获取原始图像 (320x240, BGR格式)
                 frame_bgr = np.asanyarray(color_frame.get_data())
                 
