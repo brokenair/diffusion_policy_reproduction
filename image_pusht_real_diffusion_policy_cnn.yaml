@@ -8,8 +8,8 @@ checkpoint:
     mode: min
     monitor_key: train_loss
 dataloader:
-  batch_size: 8
-  num_workers: 2
+  batch_size: 32
+  num_workers: 6
   persistent_workers: false
   pin_memory: true
   shuffle: true
@@ -170,8 +170,8 @@ training:
   use_ema: true
   val_every: 1
 val_dataloader:
-  batch_size: 8
-  num_workers: 2
+  batch_size: 32
+  num_workers: 8
   persistent_workers: false
   pin_memory: true
   shuffle: false
