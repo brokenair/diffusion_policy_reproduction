@@ -28,7 +28,7 @@ logging:
   group: null
   id: null
   mode: online
-  name: train_diffusion_unet_hybrid_pusht_real_image
+  name: ddim_train_diffusion_unet_hybrid_pusht_real_image
   project: diffusion_policy_debug
   resume: true
   tags:
@@ -37,7 +37,7 @@ logging:
   - default
 multi_run:
   run_dir: data/outputs/pusht_real
-  wandb_name_base: train_diffusion_unet_hybrid_pusht_real_image
+  wandb_name_base: ddim_train_diffusion_unet_hybrid_pusht_real_image
 n_action_steps: 8
 n_latency_steps: 0
 n_obs_steps: 2
