@@ -125,6 +125,12 @@ task:
     val_ratio: 0.02
   env_runner:
     _target_: diffusion_policy.env_runner.dummy_image_runner.DummyImageRunner
+    zarr_path: ${task.dataset.zarr_path}
+    image_key: ${task.dataset.image_key}
+    n_obs_steps: ${n_obs_steps}
+    shape_meta: ${task.shape_meta}
+    max_episodes: 10
+    max_steps_per_episode: null
   image_shape:
   - 3
   - 128

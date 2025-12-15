@@ -1,5 +1,5 @@
 """
-测试推理速度和模型性能的脚本。
+测试 MuJoCo PushT 推理速度和模型性能的脚本。
 
 功能：
 1. 使用训练数据模拟推理
@@ -17,6 +17,7 @@ from collections import defaultdict
 import dill
 import hydra
 from omegaconf import OmegaConf
+import zarr
 
 # 添加项目根目录到路径
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -25,7 +26,6 @@ sys.path.insert(0, str(ROOT_DIR))
 from diffusion_policy.common.pytorch_util import dict_apply
 from diffusion_policy.common.replay_buffer import ReplayBuffer
 from diffusion_policy.workspace.base_workspace import BaseWorkspace
-from diffusion_policy.real_world.real_inference_util import get_real_obs_dict
 
 
 # ============================================================================
@@ -33,20 +33,12 @@ from diffusion_policy.real_world.real_inference_util import get_real_obs_dict
 # ============================================================================
 
 # ===== 你需要改的两个路径 =====
-CKPT_PATH = "outputs/2025-12-13/10-23-02/checkpoints/latest.ckpt"
-CFG_PATH = "image_pusht_real_diffusion_policy_cnn.yaml"
+CKPT_PATH = "outputs/2025-12-04/17-59-18/checkpoints/epoch=2450-test_mean_score=1.000.ckpt"
+CFG_PATH = "image_pusht_mujoco_diffusion_policy_cnn.yaml"
 DEVICE = "cuda:0"
 
 # 数据集路径（与训练时一致）
-ZARR_PATH = "data/pusht_real_demo.zarr"
-
-# # ===== 你需要改的两个路径 =====
-# CKPT_PATH = "outputs/2025-12-13/10-23-02/checkpoints/latest.ckpt"
-# CFG_PATH = "image_pusht_real_diffusion_policy_cnn.yaml"
-# DEVICE = "cuda:0"
-
-# # 数据集路径（与训练时一致）
-# ZARR_PATH = "data/pusht_mujoco_demo_1.zarr"
+ZARR_PATH = "data/pusht_mujoco_128.zarr"
 
 # 测试配置
 MAX_EPISODES = 5  # None 表示测试所有episode
@@ -57,6 +49,7 @@ WARMUP_STEPS = 5  # 预热步数（不统计时间）
 def load_policy(checkpoint_path, config_path, device='cuda:0'):
     """
     加载 checkpoint 和 policy。
+    注意：优先使用 checkpoint 中保存的配置，避免模型结构不匹配。
     """
     print(f"加载 checkpoint: {checkpoint_path}")
     payload = torch.load(open(checkpoint_path, 'rb'), pickle_module=dill)
@@ -115,10 +108,8 @@ def load_policy(checkpoint_path, config_path, device='cuda:0'):
 def load_dataset(zarr_path, image_key=None):
     """
     加载训练数据集。
-    如果 image_key 为 None，则自动检测（实机版本使用 'img_128x128' 等，MuJoCo 使用 'img'）。
+    如果 image_key 为 None，则自动检测（MuJoCo 使用 'img'）。
     """
-    import zarr
-    
     print(f"加载数据集: {zarr_path}")
     
     # 如果未指定 image_key，自动检测
@@ -126,15 +117,15 @@ def load_dataset(zarr_path, image_key=None):
         root = zarr.open(zarr_path, mode='r')
         data_keys = list(root['data'].keys())
         
-        if 'img_128x128' in data_keys:
+        if 'img' in data_keys:
+            # MuJoCo 版本
+            image_key = 'img'
+        elif 'img_128x128' in data_keys:
             # 实机版本，使用 128x128 分辨率
             image_key = 'img_128x128'
         elif 'img_240x240' in data_keys:
             # 实机版本，使用 240x240 分辨率
             image_key = 'img_240x240'
-        elif 'img' in data_keys:
-            # MuJoCo 版本
-            image_key = 'img'
         else:
             raise ValueError(f"无法找到图像数据键。可用的键: {data_keys}")
         
@@ -153,15 +144,25 @@ def load_dataset(zarr_path, image_key=None):
 def prepare_obs_dict(obs_buffer, shape_meta, device):
     """
     准备观察字典，用于推理。
+    MuJoCo 版本：数据已经是正确的格式，只需要转换为 torch tensor。
     """
-    # 构建观察字典（格式: (T, H, W, C) 或 (T, D)）
-    obs_dict_np = {
-        'image': np.stack(obs_buffer['image']),  # (n_obs_steps, H, W, C) uint8
-        'agent_pos': np.stack(obs_buffer['agent_pos'])  # (n_obs_steps, 2) float
-    }
+    # MuJoCo 数据格式：图像已经是 (T, H, W, C) uint8，agent_pos 是 (T, 2) float
+    # 需要转换为 (T, C, H, W) float32 并归一化到 [0, 1]
+    obs_dict_np = dict()
+    obs_shape_meta = shape_meta['obs']
     
-    # 使用 real_inference_util 转换观察格式
-    obs_dict_np = get_real_obs_dict(obs_dict_np, shape_meta)
+    for key, attr in obs_shape_meta.items():
+        type = attr.get('type', 'low_dim')
+        if type == 'rgb':
+            # 图像：从 (T, H, W, C) uint8 转换为 (T, C, H, W) float32 [0, 1]
+            imgs = obs_buffer[key]  # (T, H, W, C) uint8
+            # THWC to TCHW
+            imgs = np.moveaxis(imgs, -1, 1)  # (T, C, H, W)
+            # uint8 to float32 [0, 1]
+            obs_dict_np[key] = imgs.astype(np.float32) / 255.0
+        elif type == 'low_dim':
+            # 低维数据：直接使用
+            obs_dict_np[key] = obs_buffer[key].astype(np.float32)
     
     # 转换为 torch tensor 并移动到设备
     obs_dict = dict_apply(
@@ -353,7 +354,7 @@ def test_inference_speed(policy, cfg, device, replay_buffer, image_key,
         return {
             'inference_times': inference_times,
             'action_errors': action_errors,
-            'all_true_actions': np.array(all_true_actions),
+            'all_true_actions': all_true_actions_array,
             'all_pred_actions': np.array(all_pred_actions),
             'stats': {
                 'mean_inference_time': mean_inference_time,
@@ -455,7 +456,7 @@ def main():
     主函数。
     """
     print("=" * 60)
-    print("推理速度和模型性能测试")
+    print("MuJoCo PushT 推理速度和模型性能测试")
     print("=" * 60)
     
     # 加载模型
@@ -481,7 +482,7 @@ def main():
     # 绘制结果
     if results is not None:
         print("\n生成图表...")
-        plot_results(results, save_dir="plots/inference_speed_test")
+        plot_results(results, save_dir="plots/inference_speed_mujoco_test")
     
     print("\n测试完成！")
 
