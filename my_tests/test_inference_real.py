@@ -34,6 +34,7 @@ from diffusion_policy.real_world.real_inference_util import (
 )
 from lagrange_01.scripts.robot_controller import RobotController
 from lagrange_01.utils.trajectory_utils import minimal_jerk_trajectory
+from lagrange_01.utils.filter_utils import LowPassFilter
 import pinocchio as pin
 
 
@@ -42,7 +43,7 @@ import pinocchio as pin
 # ============================================================================
 
 # ===== 你需要改的两个路径 =====
-CKPT_PATH = "outputs/2025-11-24/18-05-41/checkpoints/latest.ckpt"
+CKPT_PATH = "outputs/2025-12-13/10-23-02/checkpoints/latest.ckpt"
 CFG_PATH = "image_pusht_real_diffusion_policy_cnn.yaml"
 DEVICE = "cuda:0"
 
@@ -65,6 +66,9 @@ RECORD_OUTPUT_DIR = "data/inference_recordings"  # 记录保存目录
 # 图像处理
 INFERENCE_RESOLUTION = (128, 128)  # 推理使用的分辨率
 DISPLAY_RESOLUTION = (240, 240)  # 显示使用的分辨率
+
+# 低通滤波参数
+FILTER_TAU = 0.2  # 时间常数（秒），越小响应越快，但可能不够平滑
 
 
 def resize_image(image, target_size):
@@ -118,14 +122,28 @@ def load_policy(checkpoint_path, config_path, device='cuda:0'):
     
     # 设置推理参数（对于 diffusion 模型）
     if 'diffusion' in cfg.name:
-        policy.num_inference_steps = 16  # DDIM inference iterations
+        # 优先使用配置文件中的推理步数
+        if hasattr(cfg.policy, 'num_inference_steps') and cfg.policy.num_inference_steps is not None:
+            policy.num_inference_steps = cfg.policy.num_inference_steps
+        else:
+            # 如果没有配置，使用默认值（根据scheduler类型）
+            if hasattr(cfg.policy.noise_scheduler, '_target_'):
+                if 'ddim' in cfg.policy.noise_scheduler._target_.lower():
+                    policy.num_inference_steps = 16  # DDIM 默认值
+                else:
+                    policy.num_inference_steps = cfg.policy.noise_scheduler.num_train_timesteps  # DDPM 使用训练步数
+            else:
+                policy.num_inference_steps = 16  # 兜底默认值
         policy.n_action_steps = policy.horizon - policy.n_obs_steps + 1
     
     # 获取 normalizer
     dataset = hydra.utils.instantiate(cfg.task.dataset)
     normalizer = dataset.get_normalizer()
     policy.set_normalizer(normalizer)
-    
+
+    # 重要：设置 normalizer 后需要再次移动到设备，确保 normalizer 的参数也在 GPU 上
+    policy.to(device)
+
     return policy, cfg, device
 
 
@@ -153,6 +171,10 @@ def main():
     print(f"Config: {config}")
     print(f"Device: {device}")
     policy, cfg, device = load_policy(checkpoint, config, device)
+    # 确保 device 是 torch.device 对象
+    if not isinstance(device, torch.device):
+        device = torch.device(device)
+    print(f"Device type: {type(device)}, Device value: {device}")
     n_obs_steps = cfg.n_obs_steps
     print(f"n_obs_steps: {n_obs_steps}")
     print(f"action_dim: {policy.action_dim}")
@@ -265,6 +287,13 @@ def main():
     
     print("  ✓ 观察缓冲区初始化完成")
     
+    # 初始化低通滤波器（用于平滑目标位置）
+    target_filter = LowPassFilter(
+        tau=FILTER_TAU,
+        dt=dt,
+        initial_value=current_ee_pos_xy.copy()
+    )
+    
     # 推理循环
     print("\n" + "=" * 60)
     print("开始推理控制")
@@ -331,11 +360,32 @@ def main():
             # 使用 real_inference_util 转换观察格式（会转换为 float32 并调整维度）
             obs_dict_np = get_real_obs_dict(obs_dict_np, cfg.task.shape_meta)
             
-            # 转换为 torch tensor
+            # 转换为 torch tensor 并移动到设备
+            # 确保 device 是 torch.device 对象
+            if not isinstance(device, torch.device):
+                device = torch.device(device)
+            
+            # 转换为 torch tensor 并移动到设备
             obs_dict = dict_apply(
                 obs_dict_np,
-                lambda x: torch.from_numpy(x).unsqueeze(0).to(device)  # 添加 batch 维度
+                lambda x: torch.from_numpy(x).unsqueeze(0).to(device)  # 添加 batch 维度并移动到设备
             )
+            
+            # 递归函数，确保所有 tensor 都在正确的设备上
+            def to_device_recursive(obj, dev):
+                if isinstance(obj, torch.Tensor):
+                    if obj.device != dev:
+                        return obj.to(dev)
+                    return obj
+                elif isinstance(obj, dict):
+                    return {k: to_device_recursive(v, dev) for k, v in obj.items()}
+                elif isinstance(obj, (list, tuple)):
+                    return type(obj)(to_device_recursive(item, dev) for item in obj)
+                else:
+                    return obj
+            
+            # 双重检查：递归确保所有数据都在正确的设备上
+            obs_dict = to_device_recursive(obs_dict, device)
             
             # 推理
             with torch.no_grad():
@@ -344,17 +394,20 @@ def main():
             
             # 获取第一个动作（只执行第一步）
             action_first = action[0]  # (2,) - xy 目标位置
-            target_xy = action_first
+            target_xy_raw = action_first
             
             # 限制在工作空间内（与录制脚本一致的工作空间）
             WORKSPACE_CENTER = INIT_POSITION[:2]
             WORKSPACE_X_HALF = 0.15
             WORKSPACE_Y_HALF = 0.25
-            target_xy = np.clip(
-                target_xy,
+            target_xy_raw = np.clip(
+                target_xy_raw,
                 WORKSPACE_CENTER - np.array([WORKSPACE_X_HALF, WORKSPACE_Y_HALF]),
                 WORKSPACE_CENTER + np.array([WORKSPACE_X_HALF, WORKSPACE_Y_HALF])
             )
+            
+            # 低通滤波平滑目标位置
+            target_xy = target_filter.update(target_xy_raw)
             
             # 构建目标位姿（保持 z 和姿态不变）
             target_position_3d = np.array([target_xy[0], target_xy[1], INIT_POSITION[2]])
@@ -381,8 +434,6 @@ def main():
                     for q in q_traj:
                         controller.move_to_joint_positions(
                             q,
-                            limit_speed=[1.2, 1.2, 2.0, 1.0, 1.0, 1.5],
-                            acceleration=[4.0, 4.0, 5.0, 4.0, 4.0, 4.0]
                         )
                         time.sleep(dt / len(q_traj))
                     
@@ -400,8 +451,6 @@ def main():
                 if success:
                     controller.move_to_joint_positions(
                         q_target_ik,
-                        limit_speed=[1.2, 1.2, 2.0, 1.0, 1.0, 1.5],
-                        acceleration=[4.0, 4.0, 5.0, 4.0, 4.0, 4.0]
                     )
                 else:
                     print(f"  ✗ IK求解失败 (error: {ik_error:.6f})")

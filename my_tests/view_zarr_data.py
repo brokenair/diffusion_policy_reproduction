@@ -32,119 +32,152 @@ from diffusion_policy.common.replay_buffer import ReplayBuffer
 
 
 def load_zarr_data(zarr_path):
-    """加载 zarr 数据"""
+    """
+    加载 zarr 数据。
+
+    重要：将所有数据复制到内存，避免 zarr 延迟加载引用的问题。
+    如果后续需要删除原始文件，必须确保数据已经在内存中。
+    """
     root = zarr.open(zarr_path, mode='r')
-    
-    # 检测数据格式：MuJoCo 版本使用 'img'，实机版本使用 'img_240x240' 等
+
+    # 检测数据格式：MuJoCo 版本使用 'img'，实机版本使用 'img_128x128' 等
     data_keys = list(root['data'].keys())
     if 'img' in data_keys:
         # MuJoCo 版本
         img_key = 'img'
-    elif 'img_240x240' in data_keys:
-        # 实机版本，使用 240x240 分辨率
-        img_key = 'img_240x240'
+    elif 'img_128x128' in data_keys:
+        # 实机版本，使用 128x128 分辨率
+        img_key = 'img_128x128'
+        #img_key = 'img_240x240'
+
     else:
         raise ValueError(f"无法找到图像数据键。可用的键: {data_keys}")
-    
+
     print(f"检测到数据格式，使用图像键: '{img_key}'")
     print(f"数据集中可用的键: {data_keys}")
-    
+
     # 获取所有 episode 的数据
     episodes = []
     meta = root['meta']
-    
+
     for i in range(meta['episode_ends'].shape[0]):
         start = 0 if i == 0 else meta['episode_ends'][i-1]
         end = meta['episode_ends'][i]
-        
+
+        # 重要：使用 np.array() 将 zarr 切片复制到内存
+        # 这样在删除原始文件后，数据仍然可用
         episode_data = {
-            'img': root['data'][img_key][start:end],
-            'state': root['data']['state'][start:end],
-            'action': root['data']['action'][start:end],
+            'img': np.array(root['data'][img_key][start:end]),
+            'state': np.array(root['data']['state'][start:end]),
+            'action': np.array(root['data']['action'][start:end]),
         }
-        
+
         # 尝试获取 n_contacts（如果有）
         if 'n_contacts' in root['data']:
-            episode_data['n_contacts'] = root['data']['n_contacts'][start:end]
-        
+            episode_data['n_contacts'] = np.array(root['data']['n_contacts'][start:end])
+
         episodes.append(episode_data)
-    
+
     return episodes
 
 
 def save_episodes_to_zarr(episodes, zarr_path, original_count):
     """
     将删除后的 episodes 保存回 zarr 文件
-    
+
     Args:
-        episodes: 保留的 episodes 列表
+        episodes: 保留的 episodes 列表（数据已在内存中）
         zarr_path: 原始 zarr 文件路径
         original_count: 原始 episode 数量
     """
     if len(episodes) == 0:
         print("错误：没有可保存的 episodes")
         return
-    
+
     print(f"\n开始保存数据...")
     print(f"原始 episodes: {original_count}, 保留 episodes: {len(episodes)}")
-    
+
+    # 验证所有 episode 数据已在内存中（非空）
+    for i, ep in enumerate(episodes):
+        if len(ep['img']) == 0:
+            print(f"警告：Episode {i} 为空，跳过保存")
+            return
+
     # 创建备份
     backup_path = zarr_path.rstrip('/') + '_backup'
     if os.path.exists(zarr_path):
         if os.path.exists(backup_path):
+            print(f"删除旧备份: {backup_path}")
             shutil.rmtree(backup_path)
+        print(f"创建备份: {backup_path}")
         shutil.copytree(zarr_path, backup_path)
-        print(f"已创建备份: {backup_path}")
-    
+        print(f"✓ 备份创建成功")
+
     # 准备数据
     all_data = {}
     episode_ends = []
     current_end = 0
-    
+
     # 获取所有数据键
     data_keys = list(episodes[0].keys())
-    
-    for episode in episodes:
+    print(f"数据键: {data_keys}")
+
+    for i, episode in enumerate(episodes):
         episode_length = len(episode['img'])
-        
+
+        # 验证数据已在内存中
+        if not isinstance(episode['img'], np.ndarray):
+            raise RuntimeError(f"Episode {i} 的数据不是 numpy 数组，可能是 zarr 引用！")
+
         # 收集当前 episode 的所有数据
         for key in data_keys:
             if key not in all_data:
                 all_data[key] = []
             all_data[key].append(episode[key])
-        
+
         current_end += episode_length
         episode_ends.append(current_end)
-    
+
     # 合并所有数据
+    print(f"合并 {len(episodes)} 个 episodes 的数据...")
     merged_data = {}
     for key in data_keys:
         merged_data[key] = np.concatenate(all_data[key], axis=0)
-    
+        print(f"  {key}: shape={merged_data[key].shape}, dtype={merged_data[key].dtype}")
+
     # 创建新的 ReplayBuffer 并保存
     try:
         # 删除原文件
         if os.path.exists(zarr_path):
+            print(f"删除原文件: {zarr_path}")
             shutil.rmtree(zarr_path)
-        
+
         # 创建新的 ReplayBuffer（使用内存模式先构建数据）
+        print(f"创建新的 ReplayBuffer...")
         replay_buffer = ReplayBuffer.create_empty_numpy()
-        
+
         # 添加所有数据
         for key, value in merged_data.items():
             replay_buffer.data[key] = value
-        
+
         # 设置 episode_ends
         replay_buffer.meta['episode_ends'] = np.array(episode_ends, dtype=np.int64)
-        
+
         # 保存到文件
+        print(f"保存到文件: {zarr_path}")
+        print(f"（这可能需要一些时间，取决于数据量...）")
         replay_buffer.save_to_path(zarr_path, compressors='disk', chunk_length=-1)
-        
-        print(f"保存成功！新文件: {zarr_path}")
-        print(f"总帧数: {current_end}, Episodes: {len(episodes)}")
+
+        print(f"\n✓ 保存成功！")
+        print(f"  文件: {zarr_path}")
+        print(f"  总帧数: {current_end}")
+        print(f"  Episodes: {len(episodes)}")
+        print(f"  备份: {backup_path}")
     except Exception as e:
-        print(f"保存失败: {e}")
-        print(f"可以从备份恢复: {backup_path}")
+        print(f"\n✗ 保存失败: {e}")
+        print(f"可以从备份恢复:")
+        print(f"  rm -rf {zarr_path}")
+        print(f"  mv {backup_path} {zarr_path}")
         raise
 
 
@@ -444,7 +477,7 @@ def main(zarr_path, fps, start_episode):
                     break
                 # 其他键取消退出，继续循环
             else:
-            break
+                    break
         elif key == ord(' '):  # 空格：暂停/继续
             is_paused = not is_paused
         elif key == 81 or key == 2:  # 左方向键：上一帧
