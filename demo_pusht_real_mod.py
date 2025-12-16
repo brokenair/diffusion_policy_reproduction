@@ -25,6 +25,7 @@ import numpy as np
 import click
 import pyrealsense2 as rs
 from pathlib import Path
+import math
 
 from diffusion_policy.common.replay_buffer import ReplayBuffer
 from lagrange_01.scripts.robot_controller import RobotController
@@ -50,12 +51,13 @@ WORKSPACE_CENTER = INIT_POSITION[:2]  # xy 平面中心
 WORKSPACE_X_HALF = 0.15  # x 方向半宽度 (总宽度 0.3)
 WORKSPACE_Y_HALF = 0.25  # y 方向半宽度 (总宽度 0.5)
 
-# 视频分辨率
-VIDEO_RESOLUTIONS = {
-    '240x240': (240, 240),
-    '180x180': (180, 180),
-    '128x128': (128, 128),
-}
+# ===== 图像处理配置 =====
+# ROI 裁剪框配置（相对于 640x480 图像）
+CROP_TOP_LEFT = (20, 10)      # (x, y) 左上角坐标
+CROP_BOTTOM_RIGHT = (620, 340)  # (x, y) 右下角坐标
+
+# 目标像素数配置
+TARGET_PIXELS = [20000, 15000, 10000]  # 三个目标像素数（2万、1.5万、1万）
 
 # 低通滤波参数
 FILTER_TAU = 0.2  # 时间常数（秒），越小响应越快，但可能不够平滑
@@ -294,26 +296,64 @@ class MouseTargetWindow:
         self._thread.join(timeout=0.5)
 
 
-def resize_image(image, target_size):
+def calculate_resize_dimensions(crop_width, crop_height, target_pixels):
     """
-    将图像resize到目标尺寸（中心裁剪然后resize）。
+    计算保持宽高比的目标尺寸，使总像素数接近目标值
     
-    参考 test_415_resize.py 的逻辑：
-    1. 中心裁剪为正方形（取最小边）
-    2. Resize到目标尺寸
+    Args:
+        crop_width: 裁剪后的宽度
+        crop_height: 裁剪后的高度
+        target_pixels: 目标像素数
+    
+    Returns:
+        (new_width, new_height): 新的宽度和高度
     """
-    h, w = image.shape[:2]
+    aspect_ratio = crop_width / crop_height
     
-    # 中心裁剪为正方形
-    crop_size = min(h, w)
-    start_x = (w - crop_size) // 2
-    start_y = (h - crop_size) // 2
-    cropped = image[start_y:start_y+crop_size, start_x:start_x+crop_size]
+    # 根据目标像素数和宽高比计算新尺寸
+    # target_pixels = new_width * new_height
+    # new_height = new_width / aspect_ratio
+    # target_pixels = new_width * (new_width / aspect_ratio)
+    # target_pixels = new_width^2 / aspect_ratio
+    # new_width = sqrt(target_pixels * aspect_ratio)
     
-    # Resize到目标尺寸
-    resized = cv2.resize(cropped, target_size)
+    new_width = math.sqrt(target_pixels * aspect_ratio)
+    new_height = new_width / aspect_ratio
     
-    return resized
+    # 四舍五入到最近的整数
+    new_width = int(round(new_width))
+    new_height = int(round(new_height))
+    
+    # 确保至少为1像素
+    new_width = max(1, new_width)
+    new_height = max(1, new_height)
+    
+    return (new_width, new_height)
+
+
+def process_image(frame_rgb, crop_x1, crop_y1, crop_x2, crop_y2, resize_dims):
+    """
+    处理图像：ROI裁剪 + 降分辨率
+    
+    Args:
+        frame_rgb: RGB格式的原始图像 (640x480)
+        crop_x1, crop_y1: ROI左上角坐标
+        crop_x2, crop_y2: ROI右下角坐标
+        resize_dims: 目标尺寸列表 [(width, height, target_pixels), ...]
+    
+    Returns:
+        dict: 包含不同分辨率图像的字典，key为 'img_{target_pixels}px'
+    """
+    # 执行ROI裁剪
+    cropped = frame_rgb[crop_y1:crop_y2, crop_x1:crop_x2]
+    
+    # 生成多个分辨率的图像
+    images = {}
+    for new_w, new_h, target_pixels in resize_dims:
+        resized = cv2.resize(cropped, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+        images[f'img_{target_pixels}px'] = resized
+    
+    return images
 
 
 @click.command()
@@ -333,17 +373,38 @@ def main(output, control_hz, mouse_window):
     pipeline = rs.pipeline()
     config = rs.config()
     
-    # 使用最小的原始分辨率，然后裁剪+resize
-    # 320x240 可以中心裁剪为 240x240，然后resize到其他尺寸
-    config.enable_stream(rs.stream.color, 320, 240, rs.format.bgr8, 30)
+    # 配置流：初始分辨率 640x480
+    config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
     
     # 启动相机
     print("启动相机...")
     pipeline.start(config)
     
-    # 创建显示窗口（显示240x240图像）
-    cv2.namedWindow('Recording View (240x240)', cv2.WINDOW_NORMAL)
-    cv2.resizeWindow('Recording View (240x240)', 480, 480)  # 放大显示，更清晰
+    # 验证裁剪框坐标
+    crop_x1, crop_y1 = CROP_TOP_LEFT
+    crop_x2, crop_y2 = CROP_BOTTOM_RIGHT
+    
+    if crop_x1 >= crop_x2 or crop_y1 >= crop_y2:
+        raise ValueError("裁剪框坐标无效：左上角必须在右下角的左上方")
+    if crop_x1 < 0 or crop_y1 < 0 or crop_x2 > 640 or crop_y2 > 480:
+        print(f"警告：裁剪框坐标超出图像范围 (640x480)")
+        print(f"  左上角: {CROP_TOP_LEFT}, 右下角: {CROP_BOTTOM_RIGHT}")
+    
+    crop_width = crop_x2 - crop_x1
+    crop_height = crop_y2 - crop_y1
+    print(f"裁剪框尺寸: {crop_width}x{crop_height} (像素数: {crop_width * crop_height})")
+    print(f"裁剪框位置: 左上角 {CROP_TOP_LEFT}, 右下角 {CROP_BOTTOM_RIGHT}")
+    
+    # 计算三个目标尺寸（所有版本都基于原始裁剪尺寸）
+    resize_dims = []
+    for target_pixels in TARGET_PIXELS:
+        w, h = calculate_resize_dimensions(crop_width, crop_height, target_pixels)
+        print(f"目标 {target_pixels} 像素 -> 尺寸: {w}x{h} (实际像素数: {w*h})")
+        resize_dims.append((w, h, target_pixels))
+    
+    # 创建显示窗口（显示2万像素图像，放大显示）
+    cv2.namedWindow('Recording View (20000px)', cv2.WINDOW_NORMAL)
+    cv2.resizeWindow('Recording View (20000px)', 640, 480)  # 放大显示，更清晰
     
     # 初始化机器人控制器
     print("初始化机器人控制器...")
@@ -530,22 +591,20 @@ def main(output, control_hz, mouse_window):
                     time.sleep(0.1)
                     continue
                 
-                # 获取原始图像 (320x240, BGR格式)
+                # 获取原始图像 (640x480, BGR格式)
                 frame_bgr = np.asanyarray(color_frame.get_data())
                 
                 # 转换为RGB（用于数据处理和保存）
                 frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
                 
-                # 生成多个分辨率的图像
-                images = {}
-                for name, size in VIDEO_RESOLUTIONS.items():
-                    images[name] = resize_image(frame_rgb, size)
+                # 处理图像：ROI裁剪 + 降分辨率
+                images = process_image(frame_rgb, crop_x1, crop_y1, crop_x2, crop_y2, resize_dims)
                 
-                # 显示240x240图像（实时显示，无论是否在录制）
-                img_240_display = images['240x240'].copy()
+                # 显示2万像素图像（实时显示，无论是否在录制）
+                img_20k_display = images['img_20000px'].copy()
                 # 转换为BGR用于OpenCV显示
-                img_240_bgr = cv2.cvtColor(img_240_display, cv2.COLOR_RGB2BGR)
-                cv2.imshow('Recording View (240x240)', img_240_bgr)
+                img_20k_bgr = cv2.cvtColor(img_20k_display, cv2.COLOR_RGB2BGR)
+                cv2.imshow('Recording View (20000px)', img_20k_bgr)
                 key = cv2.waitKey(1) & 0xFF
                 if key == ord('q'):
                     quit_flag = True
@@ -570,9 +629,9 @@ def main(output, control_hz, mouse_window):
                     
                     # 记录数据
                     data = {
-                        'img_240x240': images['240x240'],
-                        'img_180x180': images['180x180'],
-                        'img_128x128': images['128x128'],
+                        'img_20000px': images['img_20000px'],
+                        'img_15000px': images['img_15000px'],
+                        'img_10000px': images['img_10000px'],
                         'state': np.float32(state),
                         'action': np.float32(action),
                     }

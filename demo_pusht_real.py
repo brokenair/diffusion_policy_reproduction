@@ -510,10 +510,10 @@ def main(output, control_hz, mouse_window):
                 # 转换为RGB（用于数据处理和保存）
                 frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
                     
-                    # 生成多个分辨率的图像
-                    images = {}
-                    for name, size in VIDEO_RESOLUTIONS.items():
-                        images[name] = resize_image(frame_rgb, size)
+                # 生成多个分辨率的图像
+                images = {}
+                for name, size in VIDEO_RESOLUTIONS.items():
+                    images[name] = resize_image(frame_rgb, size)
                     
                 # 显示240x240图像（实时显示，无论是否在录制）
                 img_240_display = images['240x240'].copy()

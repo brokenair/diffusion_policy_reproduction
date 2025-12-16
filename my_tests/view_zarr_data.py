@@ -49,6 +49,10 @@ def load_zarr_data(zarr_path):
         # 实机版本，使用 128x128 分辨率
         img_key = 'img_128x128'
         #img_key = 'img_240x240'
+    elif 'img_15000px' in data_keys:
+        # 实机版本，使用 15000 分辨率
+        img_key = 'img_15000px'
+        #img_key = 'img_240x240'
 
     else:
         raise ValueError(f"无法找到图像数据键。可用的键: {data_keys}")
