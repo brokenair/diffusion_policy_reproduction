@@ -34,11 +34,11 @@ from diffusion_policy.real_world.real_inference_util import get_real_obs_dict
 
 # ===== 你需要改的两个路径 =====
 CKPT_PATH = "outputs/2025-12-13/10-23-02/checkpoints/latest.ckpt"
-CFG_PATH = "image_pusht_real_diffusion_policy_cnn.yaml"
+CFG_PATH = "image_pusht_real_v1_diffusion_policy_cnn.yaml"
 DEVICE = "cuda:0"
 
 # 数据集路径（与训练时一致）
-ZARR_PATH = "data/pusht_real_demo.zarr"
+ZARR_PATH = "data/pusht_real_v1.zarr"
 
 # # ===== 你需要改的两个路径 =====
 # CKPT_PATH = "outputs/2025-12-13/10-23-02/checkpoints/latest.ckpt"
@@ -115,7 +115,7 @@ def load_policy(checkpoint_path, config_path, device='cuda:0'):
 def load_dataset(zarr_path, image_key=None):
     """
     加载训练数据集。
-    如果 image_key 为 None，则自动检测（实机版本使用 'img_128x128' 等，MuJoCo 使用 'img'）。
+    如果 image_key 为 None，则自动检测（实机版本使用 'img_15000px' 等，MuJoCo 使用 'img'）。
     """
     import zarr
     
@@ -126,7 +126,15 @@ def load_dataset(zarr_path, image_key=None):
         root = zarr.open(zarr_path, mode='r')
         data_keys = list(root['data'].keys())
         
-        if 'img_128x128' in data_keys:
+        # 优先检测新的像素数格式（实机版本 v1）
+        if 'img_15000px' in data_keys:
+            image_key = 'img_15000px'
+        elif 'img_20000px' in data_keys:
+            image_key = 'img_20000px'
+        elif 'img_10000px' in data_keys:
+            image_key = 'img_10000px'
+        # 然后检测旧的尺寸格式
+        elif 'img_128x128' in data_keys:
             # 实机版本，使用 128x128 分辨率
             image_key = 'img_128x128'
         elif 'img_240x240' in data_keys:
@@ -377,69 +385,69 @@ def plot_results(results, save_dir="plots"):
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
     
-    # 1. 推理时间分布
+    # 1. Inference time distribution
     plt.figure(figsize=(10, 6))
     plt.hist(results['inference_times'], bins=50, edgecolor='black', alpha=0.7)
-    plt.xlabel('推理时间 (秒)')
-    plt.ylabel('频数')
-    plt.title('推理时间分布')
+    plt.xlabel('Inference Time (s)')
+    plt.ylabel('Frequency')
+    plt.title('Inference Time Distribution')
     plt.axvline(np.mean(results['inference_times']), color='r', 
-                linestyle='--', label=f'平均值: {np.mean(results["inference_times"])*1000:.2f} ms')
+                linestyle='--', label=f'Mean: {np.mean(results["inference_times"])*1000:.2f} ms')
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.savefig(save_dir / 'inference_time_distribution.png', dpi=150)
     plt.close()
     
-    # 2. 动作误差分布
+    # 2. Action error distribution
     all_errors = np.concatenate([errors for errors in results['action_errors'].values()])
     plt.figure(figsize=(10, 6))
     plt.hist(all_errors, bins=50, edgecolor='black', alpha=0.7)
-    plt.xlabel('动作误差 (米)')
-    plt.ylabel('频数')
-    plt.title('动作误差分布')
+    plt.xlabel('Action Error (m)')
+    plt.ylabel('Frequency')
+    plt.title('Action Error Distribution')
     plt.axvline(np.mean(all_errors), color='r', 
-                linestyle='--', label=f'平均值: {np.mean(all_errors):.4f} m')
+                linestyle='--', label=f'Mean: {np.mean(all_errors):.4f} m')
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.savefig(save_dir / 'action_error_distribution.png', dpi=150)
     plt.close()
     
-    # 3. 每个episode的平均误差
+    # 3. Mean error per episode
     episode_means = [np.mean(errors) for errors in results['action_errors'].values()]
     plt.figure(figsize=(10, 6))
     plt.plot(episode_means, 'o-', markersize=4)
-    plt.xlabel('Episode 索引')
-    plt.ylabel('平均动作误差 (米)')
-    plt.title('每个 Episode 的平均动作误差')
+    plt.xlabel('Episode Index')
+    plt.ylabel('Mean Action Error (m)')
+    plt.title('Mean Action Error per Episode')
     plt.grid(True, alpha=0.3)
     plt.savefig(save_dir / 'episode_mean_error.png', dpi=150)
     plt.close()
     
-    # 4. 真实vs预测动作散点图（X和Y分别）
+    # 4. True vs predicted action scatter plots (X and Y separately)
     true_actions = results['all_true_actions']
     pred_actions = results['all_pred_actions']
     
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
     
-    # X坐标
+    # X coordinate
     axes[0].scatter(true_actions[:, 0], pred_actions[:, 0], alpha=0.5, s=1)
     axes[0].plot([true_actions[:, 0].min(), true_actions[:, 0].max()],
                 [true_actions[:, 0].min(), true_actions[:, 0].max()], 
-                'r--', label='理想线')
-    axes[0].set_xlabel('真实 X (米)')
-    axes[0].set_ylabel('预测 X (米)')
-    axes[0].set_title('X 坐标: 真实 vs 预测')
+                'r--', label='Ideal Line')
+    axes[0].set_xlabel('True X (m)')
+    axes[0].set_ylabel('Predicted X (m)')
+    axes[0].set_title('X Coordinate: True vs Predicted')
     axes[0].legend()
     axes[0].grid(True, alpha=0.3)
     
-    # Y坐标
+    # Y coordinate
     axes[1].scatter(true_actions[:, 1], pred_actions[:, 1], alpha=0.5, s=1)
     axes[1].plot([true_actions[:, 1].min(), true_actions[:, 1].max()],
                 [true_actions[:, 1].min(), true_actions[:, 1].max()], 
-                'r--', label='理想线')
-    axes[1].set_xlabel('真实 Y (米)')
-    axes[1].set_ylabel('预测 Y (米)')
-    axes[1].set_title('Y 坐标: 真实 vs 预测')
+                'r--', label='Ideal Line')
+    axes[1].set_xlabel('True Y (m)')
+    axes[1].set_ylabel('Predicted Y (m)')
+    axes[1].set_title('Y Coordinate: True vs Predicted')
     axes[1].legend()
     axes[1].grid(True, alpha=0.3)
     
@@ -447,7 +455,7 @@ def plot_results(results, save_dir="plots"):
     plt.savefig(save_dir / 'action_scatter.png', dpi=150)
     plt.close()
     
-    print(f"\n图表已保存到: {save_dir}")
+    print(f"\nPlots saved to: {save_dir}")
 
 
 def main():

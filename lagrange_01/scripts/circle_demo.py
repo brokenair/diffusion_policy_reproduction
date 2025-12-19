@@ -200,13 +200,13 @@ def main():
                 t = (circle_elapsed / circle_period) % 1.0  # Normalized time [0, 1]
             target_pose = make_target_pose(circle_center, radius, t, desired_orientation)
             
-                # 使用IK实时跟踪目标位姿
-                # 使用多次迭代以获得更好的收敛
-                for _ in range(5):  # 减少迭代次数，因为已经接近目标
-                    q_current, err = damped_ik_step(
-                        pin_model, pin_data, frame_id, q_current, target_pose,
-                        gain=0.5, damping=1e-2
-                    )
+            # 使用IK实时跟踪目标位姿
+            # 使用多次迭代以获得更好的收敛
+            for _ in range(5):  # 减少迭代次数，因为已经接近目标
+                q_current, err = damped_ik_step(
+                    pin_model, pin_data, frame_id, q_current, target_pose,
+                    gain=0.5, damping=1e-2
+                )
                 
                 # 更新可视化
             mj_data.qpos[: mj_model.nq] = q_current
@@ -226,8 +226,8 @@ def main():
                 R_error = actual_pose.rotation.T @ target_pose.rotation
                 angle_error = np.arccos(np.clip((np.trace(R_error) - 1) / 2, -1, 1))
                 
-                    phase_str = "TRANSITION" if phase == "transition" else "CIRCLE"
-                    print(f"  [{phase_str}] t={elapsed:.1f}s | pos_err: {pos_error*1000:.2f}mm, ori_err: {np.degrees(angle_error):.2f}°")
+                phase_str = "TRANSITION" if phase == "transition" else "CIRCLE"
+                print(f"  [{phase_str}] t={elapsed:.1f}s | pos_err: {pos_error*1000:.2f}mm, ori_err: {np.degrees(angle_error):.2f}°")
             
             viewer.sync()
             

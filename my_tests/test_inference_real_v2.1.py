@@ -348,15 +348,27 @@ def main():
         initial_value=current_ee_pos_xy.copy()
     )
     
+    # 工作空间配置（与录制脚本一致）
+    WORKSPACE_CENTER = INIT_POSITION[:2]
+    WORKSPACE_X_HALF = 0.15
+    WORKSPACE_Y_HALF = 0.25
+    
     # 推理循环
     print("\n" + "=" * 60)
     print("开始推理控制")
     print("=" * 60)
+    print("推理频率: 2Hz (每0.5秒)")
+    print("控制频率: 10Hz (每0.1秒)")
+    print("每次推理执行5个点")
     print("按 Ctrl+C 停止推理")
     print("=" * 60)
     
     step_count = 0
-    is_first_step = True
+    action_queue = []  # action执行队列
+    last_inference_time = time.time()  # 上次推理时间
+    inference_interval = 0.5  # 推理间隔（秒）
+    actions_per_inference = 5  # 每次推理执行的action数量
+    latest_actions_clipped = None  # 最新的推理结果用于显示
     
     # 如果记录，创建视频写入器
     video_writer = None
@@ -374,8 +386,9 @@ def main():
     try:
         while True:
             loop_start_time = time.time()
+            current_time = time.time()
             
-            # 读取相机图像
+            # 读取相机图像（每次循环都读取，用于更新观察和显示）
             frames = pipeline.wait_for_frames()
             color_frame = frames.get_color_frame()
             
@@ -404,98 +417,82 @@ def main():
             obs_buffer['agent_pos'].pop(0)
             obs_buffer['agent_pos'].append(current_ee_pos_xy.copy())
             
-            # 构建观察字典（格式: (T, H, W, C) 或 (T, D)）
-            # 注意：get_real_obs_dict 期望输入格式为 (T, H, W, C)，uint8 类型
-            obs_dict_np = {
-                'image': np.stack(obs_buffer['image']),  # (n_obs_steps, H, W, C) uint8
-                'agent_pos': np.stack(obs_buffer['agent_pos'])  # (n_obs_steps, 2) float
-            }
-            
-            # 使用 real_inference_util 转换观察格式（会转换为 float32 并调整维度）
-            obs_dict_np = get_real_obs_dict(obs_dict_np, cfg.task.shape_meta)
-            
-            # 转换为 torch tensor 并移动到设备
-            # 确保 device 是 torch.device 对象
-            if not isinstance(device, torch.device):
-                device = torch.device(device)
-            
-            # 转换为 torch tensor 并移动到设备
-            obs_dict = dict_apply(
-                obs_dict_np,
-                lambda x: torch.from_numpy(x).unsqueeze(0).to(device)  # 添加 batch 维度并移动到设备
-            )
-            
-            # 递归函数，确保所有 tensor 都在正确的设备上
-            def to_device_recursive(obj, dev):
-                if isinstance(obj, torch.Tensor):
-                    if obj.device != dev:
-                        return obj.to(dev)
-                    return obj
-                elif isinstance(obj, dict):
-                    return {k: to_device_recursive(v, dev) for k, v in obj.items()}
-                elif isinstance(obj, (list, tuple)):
-                    return type(obj)(to_device_recursive(item, dev) for item in obj)
-                else:
-                    return obj
-            
-            # 双重检查：递归确保所有数据都在正确的设备上
-            obs_dict = to_device_recursive(obs_dict, device)
-            
-            # 推理
-            with torch.no_grad():
-                result = policy.predict_action(obs_dict)
-                action = result['action'][0].detach().cpu().numpy()  # 移除 batch 维度
-            
-            # 获取第一个动作（只执行第一步）
-            action_first = action[0]  # (2,) - xy 目标位置
-            target_xy_raw = action_first
-            
-            # 限制在工作空间内（与录制脚本一致的工作空间）
-            WORKSPACE_CENTER = INIT_POSITION[:2]
-            WORKSPACE_X_HALF = 0.15
-            WORKSPACE_Y_HALF = 0.25
-            target_xy_raw = np.clip(
-                target_xy_raw,
-                WORKSPACE_CENTER - np.array([WORKSPACE_X_HALF, WORKSPACE_Y_HALF]),
-                WORKSPACE_CENTER + np.array([WORKSPACE_X_HALF, WORKSPACE_Y_HALF])
-            )
-            
-            # 低通滤波平滑目标位置
-            target_xy = target_filter.update(target_xy_raw)
-            
-            # 构建目标位姿（保持 z 和姿态不变）
-            target_position_3d = np.array([target_xy[0], target_xy[1], INIT_POSITION[2]])
-            target_pose = pin.SE3(target_orientation, target_position_3d)
-            
-            # 执行动作
-            if is_first_step:
-                # 第一步：规划到目标位置（3秒）
-                print(f"步骤 {step_count}: 规划到目标位置 {target_xy}")
-                q_current_ik = controller.get_joint_positions()
-                q_target_ik, ik_error, success = controller.inverse_kinematics(
-                    target_pose, q_init=q_current_ik,
-                    fixed_iterations=10  # 固定迭代次数，实时控制
+            # 检查是否需要推理（每0.5秒一次，或队列为空）
+            if len(action_queue) == 0 or (current_time - last_inference_time) >= inference_interval:
+                # 进行推理
+                print(f"  推理中... (队列长度: {len(action_queue)})")
+                inference_start_time = time.time()
+                
+                # 构建观察字典（格式: (T, H, W, C) 或 (T, D)）
+                # 注意：get_real_obs_dict 期望输入格式为 (T, H, W, C)，uint8 类型
+                obs_dict_np = {
+                    'image': np.stack(obs_buffer['image']),  # (n_obs_steps, H, W, C) uint8
+                    'agent_pos': np.stack(obs_buffer['agent_pos'])  # (n_obs_steps, 2) float
+                }
+                
+                # 使用 real_inference_util 转换观察格式（会转换为 float32 并调整维度）
+                obs_dict_np = get_real_obs_dict(obs_dict_np, cfg.task.shape_meta)
+                
+                # 转换为 torch tensor 并移动到设备
+                # 确保 device 是 torch.device 对象
+                if not isinstance(device, torch.device):
+                    device = torch.device(device)
+                
+                # 转换为 torch tensor 并移动到设备
+                obs_dict = dict_apply(
+                    obs_dict_np,
+                    lambda x: torch.from_numpy(x).unsqueeze(0).to(device)  # 添加 batch 维度并移动到设备
                 )
                 
-                if success:
-                    # 规划平滑轨迹（3秒）
-                    duration = 3.0
-                    q_traj, _, _ = minimal_jerk_trajectory(
-                        q_current_ik, q_target_ik, duration, dt
-                    )
-                    
-                    # 执行轨迹
-                    for q in q_traj:
-                        controller.move_to_joint_positions(
-                            q,
-                        )
-                        time.sleep(dt / len(q_traj))
-                    
-                    is_first_step = False
-                else:
-                    print(f"  ✗ IK求解失败 (error: {ik_error:.6f})")
-            else:
-                # 后续步骤：直接 IK 控制
+                # 递归函数，确保所有 tensor 都在正确的设备上
+                def to_device_recursive(obj, dev):
+                    if isinstance(obj, torch.Tensor):
+                        if obj.device != dev:
+                            return obj.to(dev)
+                        return obj
+                    elif isinstance(obj, dict):
+                        return {k: to_device_recursive(v, dev) for k, v in obj.items()}
+                    elif isinstance(obj, (list, tuple)):
+                        return type(obj)(to_device_recursive(item, dev) for item in obj)
+                    else:
+                        return obj
+                
+                # 双重检查：递归确保所有数据都在正确的设备上
+                obs_dict = to_device_recursive(obs_dict, device)
+                
+                # 推理
+                with torch.no_grad():
+                    result = policy.predict_action(obs_dict)
+                    action = result['action'][0].detach().cpu().numpy()  # 移除 batch 维度
+                
+                # 限制所有目标在工作空间内
+                actions_clipped = np.clip(
+                    action,
+                    WORKSPACE_CENTER - np.array([WORKSPACE_X_HALF, WORKSPACE_Y_HALF]),
+                    WORKSPACE_CENTER + np.array([WORKSPACE_X_HALF, WORKSPACE_Y_HALF])
+                )
+                
+                # 将前5个action加入队列
+                actions_to_execute = actions_clipped[:actions_per_inference]
+                action_queue.extend(actions_to_execute)
+                latest_actions_clipped = actions_clipped  # 保存用于显示
+                
+                last_inference_time = current_time
+                inference_time = time.time() - inference_start_time
+                print(f"  ✓ 推理完成 ({inference_time*1000:.1f}ms), 队列长度: {len(action_queue)}")
+            
+            # 从队列中取出一个action执行
+            if len(action_queue) > 0:
+                target_xy_raw = action_queue.pop(0)
+                
+                # 低通滤波平滑目标位置
+                target_xy = target_filter.update(target_xy_raw)
+                
+                # 构建目标位姿（保持 z 和姿态不变）
+                target_position_3d = np.array([target_xy[0], target_xy[1], INIT_POSITION[2]])
+                target_pose = pin.SE3(target_orientation, target_position_3d)
+                
+                # 执行动作：直接 IK 控制
                 q_current_ik = controller.get_joint_positions()
                 q_target_ik, ik_error, success = controller.inverse_kinematics(
                     target_pose, q_init=q_current_ik,
@@ -508,6 +505,9 @@ def main():
                     )
                 else:
                     print(f"  ✗ IK求解失败 (error: {ik_error:.6f})")
+            else:
+                # 队列为空，使用当前位置作为目标（保持不动）
+                target_xy = current_ee_pos_xy
             
             # 显示图像
             img_display_bgr = cv2.cvtColor(frame_display, cv2.COLOR_RGB2BGR)
@@ -519,26 +519,49 @@ def main():
             center_x, center_y = img_w // 2, img_h // 2
             
             # 当前位置（蓝色点）
-            if len(obs_buffer['agent_pos']) > 0:
-                current_pos_xy = obs_buffer['agent_pos'][-1]
-                offset_x = int((current_pos_xy[0] - WORKSPACE_CENTER[0]) / WORKSPACE_X_HALF * (img_w // 2))
-                offset_y = int((current_pos_xy[1] - WORKSPACE_CENTER[1]) / WORKSPACE_Y_HALF * (img_h // 2))
-                img_x = center_x + offset_x
-                img_y = center_y - offset_y  # y 轴翻转
-                cv2.circle(img_display_bgr, (img_x, img_y), 5, (255, 0, 0), -1)  # 蓝色
-            
-            # 目标位置（红色点）
-            offset_x = int((target_xy[0] - WORKSPACE_CENTER[0]) / WORKSPACE_X_HALF * (img_w // 2))
-            offset_y = int((target_xy[1] - WORKSPACE_CENTER[1]) / WORKSPACE_Y_HALF * (img_h // 2))
+            offset_x = int((current_ee_pos_xy[0] - WORKSPACE_CENTER[0]) / WORKSPACE_X_HALF * (img_w // 2))
+            offset_y = int((current_ee_pos_xy[1] - WORKSPACE_CENTER[1]) / WORKSPACE_Y_HALF * (img_h // 2))
             img_x = center_x + offset_x
             img_y = center_y - offset_y  # y 轴翻转
-            cv2.circle(img_display_bgr, (img_x, img_y), 5, (0, 0, 255), -1)  # 红色
+            cv2.circle(img_display_bgr, (img_x, img_y), 5, (255, 0, 0), -1)  # 蓝色
+            
+            # 绘制所有目标位置（红色，由深到浅）
+            if latest_actions_clipped is not None:
+                num_targets_to_show = len(latest_actions_clipped)
+                # 颜色从深红(255)到浅红(50)，BGR格式
+                color_start = 255
+                color_end = 50
+                radius_start = 6
+                radius_end = 1
+                for i, target_xy_i in enumerate(latest_actions_clipped):
+                    # 计算颜色：从深到浅
+                    if num_targets_to_show > 1:
+                        color_intensity = int(color_start - (color_start - color_end) * i / (num_targets_to_show - 1))
+                    else:
+                        color_intensity = color_start
+                    color = (0, 0, color_intensity)  # BGR格式，红色
+                    
+                    # 转换为图像坐标
+                    offset_x = int((target_xy_i[0] - WORKSPACE_CENTER[0]) / WORKSPACE_X_HALF * (img_w // 2))
+                    offset_y = int((target_xy_i[1] - WORKSPACE_CENTER[1]) / WORKSPACE_Y_HALF * (img_h // 2))
+                    img_x = center_x + offset_x
+                    img_y = center_y - offset_y  # y 轴翻转
+                    
+                    # 绘制目标点，第一个最大，后续逐渐变小
+                    if num_targets_to_show > 1:
+                        radius = int(radius_start - (radius_start - radius_end) * i / (num_targets_to_show - 1))
+                    else:
+                        radius = radius_start
+                    radius = max(1, radius)  # 确保至少为1
+                    cv2.circle(img_display_bgr, (img_x, img_y), radius, color, -1)
             
             # 添加文本信息
             cv2.putText(img_display_bgr, f"Step: {step_count}", (10, 30),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
             cv2.putText(img_display_bgr, f"Target: [{target_xy[0]:.3f}, {target_xy[1]:.3f}]", (10, 60),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+            cv2.putText(img_display_bgr, f"Queue: {len(action_queue)}", (10, 90),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
             
             cv2.imshow('Inference View', img_display_bgr)
             key = cv2.waitKey(1) & 0xFF

@@ -139,8 +139,8 @@ def main():
         # motor6.pos_control(angle=target_pos)
         # motor6.csp_control(angle=target_pos, limit_speed=5.0)
         # 用这个模式记得使能电机
-        # motor6.move_control(torque=0.0, angle=target_pos, speed=target_vel, kp=10.0, kd=0.5)
-        motor6.speed_control(speed=1.0, limit_cur=1.0)
+        motor6.move_control(torque=0.0, angle=target_pos, speed=target_vel, kp=10.0, kd=0.5)
+        #motor6.speed_control(speed=1.0, limit_cur=1.0)
         
         # 定期请求电机状态
         if True:

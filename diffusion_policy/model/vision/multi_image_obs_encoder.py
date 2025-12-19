@@ -143,6 +143,7 @@ class MultiImageObsEncoder(ModuleAttrMixin):
             # (N*B,C,H,W)
             imgs = torch.cat(imgs, dim=0)
             # (N*B,D)
+            # 在这里使用模型处理图像，比如使用resnet18来得到512维的特征
             feature = self.key_model_map['rgb'](imgs)
             # (N,B,D)
             feature = feature.reshape(-1,batch_size,*feature.shape[1:])

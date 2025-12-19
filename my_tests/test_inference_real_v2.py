@@ -356,7 +356,6 @@ def main():
     print("=" * 60)
     
     step_count = 0
-    is_first_step = True
     
     # 如果记录，创建视频写入器
     video_writer = None
@@ -446,68 +445,43 @@ def main():
                 result = policy.predict_action(obs_dict)
                 action = result['action'][0].detach().cpu().numpy()  # 移除 batch 维度
             
-            # 获取第一个动作（只执行第一步）
-            action_first = action[0]  # (2,) - xy 目标位置
-            target_xy_raw = action_first
+            # 获取前6个动作用于显示（只执行第一步）
+            num_targets_to_show = 6
+            actions_to_show = action[:num_targets_to_show]  # (6, 2) - 前6个xy目标位置
             
             # 限制在工作空间内（与录制脚本一致的工作空间）
             WORKSPACE_CENTER = INIT_POSITION[:2]
             WORKSPACE_X_HALF = 0.15
             WORKSPACE_Y_HALF = 0.25
-            target_xy_raw = np.clip(
-                target_xy_raw,
+            
+            # 限制所有目标在工作空间内
+            actions_clipped = np.clip(
+                actions_to_show,
                 WORKSPACE_CENTER - np.array([WORKSPACE_X_HALF, WORKSPACE_Y_HALF]),
                 WORKSPACE_CENTER + np.array([WORKSPACE_X_HALF, WORKSPACE_Y_HALF])
             )
             
-            # 低通滤波平滑目标位置
-            target_xy = target_filter.update(target_xy_raw)
+            # 第一个动作用于执行（低通滤波平滑）
+            action_first = actions_clipped[0]
+            target_xy = target_filter.update(action_first)
             
             # 构建目标位姿（保持 z 和姿态不变）
             target_position_3d = np.array([target_xy[0], target_xy[1], INIT_POSITION[2]])
             target_pose = pin.SE3(target_orientation, target_position_3d)
             
-            # 执行动作
-            if is_first_step:
-                # 第一步：规划到目标位置（3秒）
-                print(f"步骤 {step_count}: 规划到目标位置 {target_xy}")
-                q_current_ik = controller.get_joint_positions()
-                q_target_ik, ik_error, success = controller.inverse_kinematics(
-                    target_pose, q_init=q_current_ik,
-                    fixed_iterations=10  # 固定迭代次数，实时控制
+            # 执行动作：直接 IK 控制（统一处理，无3秒规划）
+            q_current_ik = controller.get_joint_positions()
+            q_target_ik, ik_error, success = controller.inverse_kinematics(
+                target_pose, q_init=q_current_ik,
+                fixed_iterations=10
+            )
+            
+            if success:
+                controller.move_to_joint_positions(
+                    q_target_ik,
                 )
-                
-                if success:
-                    # 规划平滑轨迹（3秒）
-                    duration = 3.0
-                    q_traj, _, _ = minimal_jerk_trajectory(
-                        q_current_ik, q_target_ik, duration, dt
-                    )
-                    
-                    # 执行轨迹
-                    for q in q_traj:
-                        controller.move_to_joint_positions(
-                            q,
-                        )
-                        time.sleep(dt / len(q_traj))
-                    
-                    is_first_step = False
-                else:
-                    print(f"  ✗ IK求解失败 (error: {ik_error:.6f})")
             else:
-                # 后续步骤：直接 IK 控制
-                q_current_ik = controller.get_joint_positions()
-                q_target_ik, ik_error, success = controller.inverse_kinematics(
-                    target_pose, q_init=q_current_ik,
-                    fixed_iterations=10
-                )
-                
-                if success:
-                    controller.move_to_joint_positions(
-                        q_target_ik,
-                    )
-                else:
-                    print(f"  ✗ IK求解失败 (error: {ik_error:.6f})")
+                print(f"  ✗ IK求解失败 (error: {ik_error:.6f})")
             
             # 显示图像
             img_display_bgr = cv2.cvtColor(frame_display, cv2.COLOR_RGB2BGR)
@@ -527,12 +501,25 @@ def main():
                 img_y = center_y - offset_y  # y 轴翻转
                 cv2.circle(img_display_bgr, (img_x, img_y), 5, (255, 0, 0), -1)  # 蓝色
             
-            # 目标位置（红色点）
-            offset_x = int((target_xy[0] - WORKSPACE_CENTER[0]) / WORKSPACE_X_HALF * (img_w // 2))
-            offset_y = int((target_xy[1] - WORKSPACE_CENTER[1]) / WORKSPACE_Y_HALF * (img_h // 2))
-            img_x = center_x + offset_x
-            img_y = center_y - offset_y  # y 轴翻转
-            cv2.circle(img_display_bgr, (img_x, img_y), 5, (0, 0, 255), -1)  # 红色
+            # 绘制6个目标位置（红色，由深到浅）
+            # 颜色从深红(255)到浅红(100)，BGR格式
+            color_start = 255
+            color_end = 100
+            for i, target_xy_i in enumerate(actions_clipped):
+                # 计算颜色：从深到浅
+                color_intensity = int(color_start - (color_start - color_end) * i / (num_targets_to_show - 1))
+                color = (0, 0, color_intensity)  # BGR格式，红色
+                
+                # 转换为图像坐标
+                offset_x = int((target_xy_i[0] - WORKSPACE_CENTER[0]) / WORKSPACE_X_HALF * (img_w // 2))
+                offset_y = int((target_xy_i[1] - WORKSPACE_CENTER[1]) / WORKSPACE_Y_HALF * (img_h // 2))
+                img_x = center_x + offset_x
+                img_y = center_y - offset_y  # y 轴翻转
+                
+                # 绘制目标点，第一个最大，后续逐渐变小
+                radius = 6 - i  # 第一个半径6，最后一个半径1
+                radius = max(1, radius)  # 确保至少为1
+                cv2.circle(img_display_bgr, (img_x, img_y), radius, color, -1)
             
             # 添加文本信息
             cv2.putText(img_display_bgr, f"Step: {step_count}", (10, 30),
